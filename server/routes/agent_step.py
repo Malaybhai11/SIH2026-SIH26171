@@ -47,6 +47,7 @@ class StepRequest(BaseModel):
     siteConfigId: str = "generic"
     currentUrl: Optional[str] = None
     openTabs: list[dict[str, Any]] = Field(default_factory=list)
+    pageMeta: dict[str, Any] = Field(default_factory=dict)
     sendScreenshot: bool = False
     redactedScreenshot: Optional[str] = None
     sanitizedDom: list[Node] = Field(default_factory=list)

@@ -48,6 +48,11 @@ Task types — not everything is a collection:
 Rules: prefer finishing over looping. If you already have enough to answer, return "done".
 Node ids look like "n_0007". To follow a link, either click its node or "navigate" to its
 "href". Keep "reasoning" to one sentence.
+
+If pageMeta.loginWall is true, or pageMeta.nodeCount is 0 for more than one turn, the page
+has no readable content (sign-in gate or blocked) — return "done" and say so plainly
+instead of scrolling. Only scroll when there IS content and you need more of it
+(pageMeta.scrollY < pageMeta.scrollMax).
 """
 
 
@@ -59,6 +64,7 @@ def build_user_message(req: dict) -> str:
         "maxIterations": req.get("maxIterations"),
         "targetCountHint": target,
         "currentUrl": req.get("currentUrl"),
+        "pageMeta": req.get("pageMeta") or {},
         "screenState": req.get("screenState"),
         "screenStateConfidence": req.get("screenStateConfidence"),
         "site": req.get("siteConfigId"),

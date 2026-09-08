@@ -125,7 +125,15 @@ async function navAction(action) {
       await chrome.tabs.goBack(STATE.tabId);
       await waitForTabLoad(STATE.tabId);
     }
-    await new Promise((r) => setTimeout(r, DEFAULTS.settleMs));
+    // SPAs keep rendering well after `status: complete` — give them longer.
+    let spaMs = DEFAULTS.settleMs;
+    try {
+      const h = new URL(action.url || (await getCurrentUrl()) || "https://x").hostname;
+      if (/(x|twitter|reddit|instagram|linkedin|facebook)\.com$/i.test(h)) spaMs = 2200;
+    } catch (e) {
+      /* keep default */
+    }
+    await new Promise((r) => setTimeout(r, spaMs));
     const ready = await ensureContentScript();
     return ready ? { ok: true } : { ok: false, error: "content script unavailable after navigation" };
   } catch (e) {
@@ -203,6 +211,13 @@ async function buildRequest(snapshot) {
     siteConfigId: snapshot.meta?.siteConfigId ?? "generic",
     currentUrl: await getCurrentUrl(),
     openTabs: await getOpenTabs(),
+    pageMeta: {
+      nodeCount: snapshot.sanitizedDom?.length ?? 0,
+      loginWall: !!snapshot.meta?.loginWall,
+      scrollY: snapshot.meta?.scrollY ?? 0,
+      scrollMax: snapshot.meta?.scrollMax ?? 0,
+      title: snapshot.meta?.title ?? "",
+    },
     sendScreenshot: !!snapshot.sendScreenshot,
     redactedScreenshot: snapshot.sendScreenshot ? snapshot.redactedScreenshot ?? null : null,
     sanitizedDom: snapshot.sanitizedDom ?? [],
@@ -279,6 +294,7 @@ async function callServer(reqBody, snapshot) {
 async function runLoop() {
   RUNNING = true;
   STATE.iteration = 0;
+  let emptyStreak = 0;
 
   while (STATE.iteration < STATE.maxIterations && !STATE.cancelRequested) {
     STATE.iteration += 1;
@@ -321,6 +337,33 @@ async function runLoop() {
       STATE.error = `perception failed: ${snapshot?.error ?? "unknown"}`;
       log(STATE.error, "error");
       break;
+    }
+
+    // Login wall / persistently empty page → stop with a useful message instead
+    // of burning every iteration scrolling nothing.
+    const nodeCount = snapshot.sanitizedDom?.length ?? 0;
+    const host = (await getCurrentUrl())?.replace(/^https?:\/\//, "").split("/")[0] || "the page";
+    if (snapshot.meta?.loginWall) {
+      STATE.status = STATUS.DONE;
+      STATE.answer =
+        `${host} is showing a sign-in wall, so there's no content to read. ` +
+        `Log in to that site in this browser, then re-run the task.`;
+      log(STATE.answer, "warn");
+      break;
+    }
+    if (nodeCount === 0) {
+      emptyStreak += 1;
+      if (emptyStreak >= 3) {
+        STATE.status = STATUS.DONE;
+        STATE.answer =
+          `${host} returned no readable content after ${emptyStreak} attempts — the site ` +
+          `may require login, block automation, or still be loading. Stopping.`;
+        log(STATE.answer, "warn");
+        break;
+      }
+      log(`empty snapshot (${emptyStreak}/3) — retrying`, "warn");
+    } else {
+      emptyStreak = 0;
     }
 
     STATE.status = STATUS.REDACTING;
