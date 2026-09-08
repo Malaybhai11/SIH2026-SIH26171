@@ -49,7 +49,8 @@ _INCEPTION_MODEL = os.environ.get("INCEPTION_MODEL", "mercury-2")
 
 _ANTHROPIC_MODEL = os.environ.get("AGENT_MODEL", "claude-opus-5")
 
-_ACTION_KEYS = ("type", "targetId", "amount", "text", "ms")
+_ACTION_KEYS = ("type", "targetId", "url", "amount", "text", "ms", "index")
+_ACTION_TYPES = {"click", "scroll", "type", "wait", "extract", "navigate", "open_tab", "switch_tab", "back"}
 
 
 def resolve_provider() -> str:
@@ -87,10 +88,12 @@ def _validate(data: Any) -> None:
         raise ValueError("bad status")
     if data["status"] == "action":
         a = data.get("action") or {}
-        if a.get("type") not in {"click", "scroll", "type", "wait", "extract"}:
+        if a.get("type") not in _ACTION_TYPES:
             raise ValueError("bad action.type")
         if a["type"] in {"click", "type"} and not a.get("targetId"):
             raise ValueError(f"{a['type']} needs targetId")
+        if a["type"] in {"navigate", "open_tab"} and not a.get("url"):
+            raise ValueError(f"{a['type']} needs url")
     if data["status"] == "done" and not data.get("answer"):
         raise ValueError("done needs answer")
 
@@ -109,6 +112,23 @@ def mock_step(req: dict) -> dict:
     target = _target_count(prompt)
     snapshot = req.get("sanitizedDom") or []
     acc = req.get("accumulatedData") or []
+
+    if target == 0:
+        # Not a collection task — the mock stepper can't browse/reason, so it just
+        # reports what's visible. (Use a real provider for question tasks.)
+        visible = [
+            (n.get("text") or "").strip()
+            for n in snapshot
+            if (n.get("text") or "").strip()
+        ][:15]
+        return _finalize(
+            {
+                "status": "done",
+                "answer": "[MOCK_LLM] Question tasks need a real LLM provider. Visible on the page:\n"
+                + "\n".join(f"- {t[:160]}" for t in visible),
+                "reasoning": "mock cannot answer free-form questions",
+            }
+        )
 
     fresh = [
         _blank_item(n)
@@ -157,7 +177,7 @@ def _inception_step(req: dict) -> dict:
         "messages": messages,
         "response_format": {
             "type": "json_schema",
-            "json_schema": {"name": "agent_step", "strict": True, "schema": _SCHEMA},
+            "json_schema": {"name": "agent_step", "strict": False, "schema": _SCHEMA},
         },
     }
 

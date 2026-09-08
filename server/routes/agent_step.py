@@ -45,6 +45,8 @@ class StepRequest(BaseModel):
     screenState: str = "unknown"
     screenStateConfidence: float = 0.5
     siteConfigId: str = "generic"
+    currentUrl: Optional[str] = None
+    openTabs: list[dict[str, Any]] = Field(default_factory=list)
     sendScreenshot: bool = False
     redactedScreenshot: Optional[str] = None
     sanitizedDom: list[Node] = Field(default_factory=list)

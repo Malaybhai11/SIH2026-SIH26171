@@ -139,9 +139,14 @@ async function handleAction({ action }) {
       case "click": {
         const el = getElementByAgentId(action.targetId);
         if (!el) return { ok: false, error: `no element ${action.targetId}` };
-        el.scrollIntoView({ block: "center", behavior: "instant" });
-        el.click();
-        await settle(action.ms ?? 800);
+        // If the node itself isn't clickable (e.g. a list row), click the primary
+        // link/button inside it.
+        const clickable = el.matches('a[href], button, [role="button"], [role="link"], input')
+          ? el
+          : el.querySelector('a[href], button, [role="button"], [role="link"]') || el;
+        clickable.scrollIntoView({ block: "center", behavior: "instant" });
+        clickable.click();
+        await settle(action.ms ?? 900);
         return { ok: true };
       }
       case "type": {

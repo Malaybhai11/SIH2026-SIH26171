@@ -47,9 +47,15 @@ npm run build          # -> dist/   (npm run watch for rebuilds)
 ```
 
 `chrome://extensions` → enable Developer mode → **Load unpacked** → select `dist/`.
-Open a supported site (x.com, news.ycombinator.com, en.wikipedia.org), click the
-toolbar icon, type a task (e.g. *"find the top 10 Elon Musk posts and summarize them"*),
-**Run**. Tick **Local-only** to demo perception + redaction with no server at all.
+Open any normal web page (not a `chrome://` page), click the toolbar icon, type a
+task, **Run**. Tick **Local-only** to demo perception + redaction with no server.
+
+The agent runs on the active tab and can **navigate, open/switch tabs, click, type,
+scroll, and go back** — so tasks like *"go to news.ycombinator.com and explain the
+Google Jail story"* or *"find the top 10 Elon Musk posts and summarize them"* work
+from any starting page. It stops at `maxIterations` (8) or when the LLM returns a
+final answer. Question tasks need a real provider (`inception`/`anthropic`); the mock
+stepper only does collection tasks.
 
 ### 3. Eval
 

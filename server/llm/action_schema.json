@@ -1,22 +1,28 @@
 {
-  "$comment": "Machine copy of the /agent/step RESPONSE schema (docs/api-contract.md). Used for LLM structured-output constraint and server-side validation.",
+  "$comment": "Machine copy of the /agent/step RESPONSE schema (docs/api-contract.md). Used to constrain LLM structured output and for server-side validation. Non-strict: unused fields may be omitted; the server fills defaults.",
   "type": "object",
   "properties": {
     "status": { "type": "string", "enum": ["action", "done"] },
     "action": {
       "type": ["object", "null"],
       "properties": {
-        "type": { "type": "string", "enum": ["click", "scroll", "type", "wait", "extract"] },
-        "targetId": { "type": ["string", "null"] },
-        "amount": { "type": ["integer", "null"] },
-        "text": { "type": ["string", "null"] },
-        "ms": { "type": ["integer", "null"] }
+        "type": {
+          "type": "string",
+          "enum": ["click", "scroll", "type", "wait", "extract", "navigate", "open_tab", "switch_tab", "back"]
+        },
+        "targetId": { "type": ["string", "null"], "description": "a node id from the snapshot; required for click/type" },
+        "url": { "type": ["string", "null"], "description": "absolute URL; required for navigate/open_tab" },
+        "amount": { "type": ["integer", "null"], "description": "pixels for scroll (positive = down)" },
+        "text": { "type": ["string", "null"], "description": "text to type" },
+        "ms": { "type": ["integer", "null"], "description": "milliseconds for wait" },
+        "index": { "type": ["integer", "null"], "description": "0-based tab index for switch_tab" }
       },
-      "required": ["type", "targetId", "amount", "text", "ms"],
+      "required": ["type"],
       "additionalProperties": false
     },
     "extracted": {
       "type": "array",
+      "description": "items parsed from THIS snapshot; merged into accumulatedData, de-duped",
       "items": {
         "type": "object",
         "properties": {
@@ -25,11 +31,10 @@
           "timestamp": { "type": ["string", "null"] },
           "href": { "type": ["string", "null"] }
         },
-        "required": ["author", "text", "timestamp", "href"],
         "additionalProperties": false
       }
     },
-    "answer": { "type": ["string", "null"] },
+    "answer": { "type": ["string", "null"], "description": "final natural-language answer; required when status=done" },
     "extractedItems": {
       "type": "array",
       "items": {
@@ -40,12 +45,11 @@
           "timestamp": { "type": ["string", "null"] },
           "href": { "type": ["string", "null"] }
         },
-        "required": ["author", "text", "timestamp", "href"],
         "additionalProperties": false
       }
     },
-    "reasoning": { "type": "string" }
+    "reasoning": { "type": "string", "description": "one sentence" }
   },
-  "required": ["status", "action", "extracted", "answer", "extractedItems", "reasoning"],
+  "required": ["status"],
   "additionalProperties": false
 }
