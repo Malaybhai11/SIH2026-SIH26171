@@ -1,0 +1,24 @@
+{
+  "id": "03_social_feed",
+  "description": "x.com-style feed — mostly task-relevant text; sparse PII in replies. Guards against over-redaction.",
+  "nodes": [
+    { "id": "f1", "role": "article", "text": "Just completed a full static fire of all 33 Raptor engines. Next step is orbital flight.", "author": "@elonmusk" },
+    { "id": "f2", "role": "article", "text": "Starship will make life multiplanetary. Aiming for Mars transit in the late 2020s.", "author": "@elonmusk" },
+    { "id": "f3", "role": "article", "text": "Reply: congrats! email me at fan.account@gmail.com for collab", "author": "@spacefan" },
+    { "id": "f4", "role": "article", "text": "The Boring Company just finished a 2.4 mile tunnel segment under Las Vegas.", "author": "@elonmusk" },
+    { "id": "f5", "role": "article", "text": "Neuralink received FDA approval for its second human implant.", "author": "@elonmusk" },
+    { "id": "f6", "role": "article", "text": "DM me on +1 (415) 555-0142, I lost my ticket", "author": "@randomreply" }
+  ],
+  "labels": {
+    "pii": [
+      { "elementId": "f3", "type": "EMAIL", "value": "fan.account@gmail.com" },
+      { "elementId": "f6", "type": "PHONE", "value": "+1 (415) 555-0142" }
+    ],
+    "negatives": [
+      { "elementId": "f1", "value": "33 Raptor engines" },
+      { "elementId": "f2", "value": "Mars transit in the late 2020s" },
+      { "elementId": "f4", "value": "2.4 mile tunnel segment under Las Vegas" },
+      { "elementId": "f5", "value": "FDA approval for its second human implant" }
+    ]
+  }
+}

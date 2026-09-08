@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>Privacy-Preserving Browser Agent</title>
+  </head>
+  <body>
+    <header>
+      <h1>Browser Agent</h1>
+      <span id="status" class="badge">IDLE</span>
+    </header>
+
+    <section class="input-row">
+      <textarea
+        id="prompt"
+        rows="2"
+        placeholder="e.g. Go to x.com and find the top 10 Elon Musk posts and summarize them"
+      ></textarea>
+      <div class="controls">
+        <label class="opt"
+          ><input type="checkbox" id="localOnly" /> Local-only (no server)</label
+        >
+        <input id="serverUrl" type="text" value="http://localhost:8000/agent/step" />
+        <div class="btns">
+          <button id="run">Run</button>
+          <button id="cancel" disabled>Cancel</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Answer</h2>
+      <div id="answer" class="answer muted">—</div>
+      <div id="collected" class="muted small"></div>
+    </section>
+
+    <details id="redactPanel">
+      <summary>What was redacted <span id="redactCount" class="pill">0</span></summary>
+      <div id="redactBody" class="small"></div>
+    </details>
+
+    <details id="metricsPanel">
+      <summary>Metrics</summary>
+      <div id="metricsBody" class="small"></div>
+    </details>
+
+    <section>
+      <h2>Status log</h2>
+      <ul id="log" class="log"></ul>
+    </section>
+  </body>
+  <script src="popup.js"></script>
+</html>

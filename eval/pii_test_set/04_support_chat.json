@@ -1,0 +1,25 @@
+{
+  "id": "04_support_chat",
+  "description": "Support chat transcript — free-text PII the regex layer should catch; names need NER.",
+  "nodes": [
+    { "id": "s1", "role": "paragraph", "text": "Agent: Hi, can I get your account email to pull up the order?" },
+    { "id": "s2", "role": "paragraph", "text": "Customer: sure it's meera.iyer@example.org" },
+    { "id": "s3", "role": "paragraph", "text": "Agent: Thanks Meera Iyer. And a callback number?" },
+    { "id": "s4", "role": "paragraph", "text": "Customer: 07700 900123" },
+    { "id": "s5", "role": "paragraph", "text": "Agent: Your SSN on file ends 123-45-6789, confirm last 4?" },
+    { "id": "s6", "role": "paragraph", "text": "Customer: yes. also my card 5555 5555 5555 4444 was declined" },
+    { "id": "s7", "role": "paragraph", "text": "Agent: The refund policy allows 30 days from delivery." }
+  ],
+  "labels": {
+    "pii": [
+      { "elementId": "s2", "type": "EMAIL", "value": "meera.iyer@example.org" },
+      { "elementId": "s3", "type": "NAME", "value": "Meera Iyer" },
+      { "elementId": "s4", "type": "PHONE", "value": "07700 900123" },
+      { "elementId": "s5", "type": "SSN", "value": "123-45-6789" },
+      { "elementId": "s6", "type": "CC", "value": "5555 5555 5555 4444" }
+    ],
+    "negatives": [
+      { "elementId": "s7", "value": "30 days from delivery" }
+    ]
+  }
+}

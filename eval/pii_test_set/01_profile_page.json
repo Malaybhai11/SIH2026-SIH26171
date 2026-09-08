@@ -1,0 +1,30 @@
+{
+  "id": "01_profile_page",
+  "description": "A user profile / contact card — dense structured PII.",
+  "nodes": [
+    { "id": "p1", "role": "heading", "text": "Priya Sharma — Senior Engineer" },
+    { "id": "p2", "role": "paragraph", "text": "Reach me at priya.sharma@example.co.in or on +91 98765 43210." },
+    { "id": "p3", "role": "paragraph", "text": "Based in Bengaluru. Mailing address: 42 Residency Road, Bengaluru." },
+    { "id": "p4", "role": "paragraph", "text": "Aadhaar on file: 1234 5678 9012. PAN handled separately." },
+    { "id": "p5", "role": "listitem", "text": "Manager: Rahul Verma (rahul.verma@example.co.in)" },
+    { "id": "p6", "role": "paragraph", "text": "Works on the Chandrayaan telemetry pipeline at ISRO." }
+  ],
+  "labels": {
+    "pii": [
+      { "elementId": "p1", "type": "NAME", "value": "Priya Sharma" },
+      { "elementId": "p2", "type": "EMAIL", "value": "priya.sharma@example.co.in" },
+      { "elementId": "p2", "type": "PHONE", "value": "+91 98765 43210" },
+      { "elementId": "p3", "type": "LOCATION", "value": "Bengaluru" },
+      { "elementId": "p3", "type": "ADDRESS", "value": "42 Residency Road" },
+      { "elementId": "p3", "type": "LOCATION", "value": "Bengaluru" },
+      { "elementId": "p4", "type": "ID", "value": "1234 5678 9012" },
+      { "elementId": "p5", "type": "NAME", "value": "Rahul Verma" },
+      { "elementId": "p5", "type": "EMAIL", "value": "rahul.verma@example.co.in" }
+    ],
+    "negatives": [
+      { "elementId": "p1", "value": "Senior Engineer" },
+      { "elementId": "p6", "value": "Chandrayaan telemetry pipeline" },
+      { "elementId": "p6", "value": "ISRO" }
+    ]
+  }
+}

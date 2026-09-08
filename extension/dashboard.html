@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Agent Metrics Dashboard</title>
+    <style>
+      body {
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        margin: 24px;
+        color: #1b1b1f;
+        background: #fafafa;
+      }
+      h1 {
+        font-size: 18px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+        margin: 16px 0;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e3e4e8;
+        border-radius: 8px;
+        padding: 12px 14px;
+      }
+      .card .k {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #6b7280;
+      }
+      .card .v {
+        font-size: 22px;
+        font-weight: 700;
+        margin-top: 4px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        background: #fff;
+      }
+      th,
+      td {
+        border: 1px solid #e3e4e8;
+        padding: 4px 8px;
+        text-align: right;
+        font-size: 13px;
+      }
+      th:first-child,
+      td:first-child {
+        text-align: left;
+      }
+      .muted {
+        color: #6b7280;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Agent Metrics Dashboard</h1>
+    <p class="muted" id="ctx">waiting for a task…</p>
+
+    <div class="grid" id="cards"></div>
+
+    <h2>Per-iteration latency (ms)</h2>
+    <table id="itertable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>perceive</th>
+          <th>redact</th>
+          <th>face</th>
+          <th>screen</th>
+          <th>vision total</th>
+          <th>server</th>
+          <th>loop total</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <script>
+      const STATE_KEY = "agentTaskState";
+
+      function card(k, v) {
+        return `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+      }
+
+      function render(s) {
+        if (!s) return;
+        document.getElementById("ctx").textContent =
+          `task: "${s.prompt || "—"}"  ·  status: ${s.status}  ·  vision: ${s.lastVisionMode || "—"}` +
+          (s.localOnly ? "  ·  LOCAL-ONLY" : "");
+
+        const iters = s.metrics?.iterations ?? [];
+        const avg = iters.length
+          ? Math.round(iters.reduce((a, m) => a + (m.totalMs || 0), 0) / iters.length)
+          : "—";
+        const redTotal = s.lastRedactionSummary?.total ?? 0;
+
+        document.getElementById("cards").innerHTML = [
+          card("Iterations", `${s.iteration || 0}/${s.maxIterations || 6}`),
+          card("Avg loop (ms)", avg + (typeof avg === "number" && avg < 2500 ? " ✓" : "")),
+          card("Items collected", s.accumulatedData?.length ?? 0),
+          card("Redacted spans", redTotal),
+          card("Vision mode", s.lastVisionMode || "—"),
+          card("Screen state", s.lastScreenState || "—"),
+        ].join("");
+
+        document.querySelector("#itertable tbody").innerHTML = iters
+          .map(
+            (m) =>
+              `<tr><td>${m.iteration}</td><td>${m.perceiveMs ?? "-"}</td><td>${m.redactMs ?? "-"}</td><td>${m.faceMs ?? "-"}</td><td>${m.screenMs ?? "-"}</td><td>${m.visionTotalMs ?? "-"}</td><td>${m.serverMs ?? "-"}</td><td>${m.totalMs ?? "-"}</td></tr>`,
+          )
+          .join("");
+      }
+
+      async function tick() {
+        try {
+          const r = await chrome.storage.session.get(STATE_KEY);
+          render(r?.[STATE_KEY]);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      chrome.storage.session.onChanged?.addListener(tick);
+      setInterval(tick, 1000);
+      tick();
+    </script>
+  </body>
+</html>

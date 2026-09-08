@@ -1,0 +1,20 @@
+{
+  "name": "sih171-privacy-browser-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "On-device visual perception for lightweight browser agents (SIH PS 26171)",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "clean": "rm -rf dist",
+    "test:redact": "node --test extension/lib/redact.test.mjs",
+    "eval": "python3 eval/metrics.py"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0"
+  },
+  "optionalDependencies": {
+    "onnxruntime-web": "^1.19.0"
+  }
+}
