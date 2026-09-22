@@ -9,7 +9,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from server.llm.client import decide_step
-from server.redaction_qa.server_side_regex_check import check_and_repair
+from server.redaction_qa.server_side_regex_check import check_and_repair, scrub_text
 
 router = APIRouter()
 
@@ -52,6 +52,8 @@ class StepRequest(BaseModel):
     redactedScreenshot: Optional[str] = None
     sanitizedDom: list[Node] = Field(default_factory=list)
     accumulatedData: list[dict[str, Any]] = Field(default_factory=list)
+    memoryFacts: list[dict[str, Any]] = Field(default_factory=list)
+    lastActionResult: Optional[dict[str, Any]] = None
 
 
 @router.post("/agent/step")
@@ -69,6 +71,20 @@ def agent_step(req: StepRequest) -> dict:
     # 2. Hand the repaired context to the step decider.
     llm_input = req.model_dump()
     llm_input["sanitizedDom"] = qa.sanitized_dom
+
+    if isinstance(llm_input.get("pageMeta"), dict) and "toasts" in llm_input["pageMeta"]:
+        toasts = llm_input["pageMeta"].get("toasts")
+        if isinstance(toasts, list):
+            clean_toasts = []
+            for t in toasts:
+                if isinstance(t, str):
+                    repaired, hits = scrub_text(t)
+                    if hits:
+                        QA_STATS["leak_catch_events"] += 1
+                        QA_STATS["leaked_spans"] += sum(hits.values())
+                    clean_toasts.append(repaired)
+            llm_input["pageMeta"]["toasts"] = clean_toasts
+
     decision, engine = decide_step(llm_input)
 
     # 3. Shape the response per the contract.

@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from .prompt_templates import SYSTEM, build_user_message, _target_count
+from .plan_prompt import SYSTEM as _PLAN_SYSTEM, build_user_message as _build_plan_message
+from .synthesize_prompt import SYSTEM as _SYNTH_SYSTEM, build_user_message as _build_synth_message
 
 _ROOT = Path(__file__).resolve().parents[2]
 
@@ -40,6 +42,12 @@ _load_dotenv()
 _SCHEMA = json.loads((_ROOT / "server/llm/action_schema.json").read_text())
 _SCHEMA = {k: v for k, v in _SCHEMA.items() if not k.startswith("$")}  # strip $comment
 
+_PLAN_SCHEMA = json.loads((_ROOT / "server/llm/plan_schema.json").read_text())
+_PLAN_SCHEMA = {k: v for k, v in _PLAN_SCHEMA.items() if not k.startswith("$")}  # strip $comment
+
+_SYNTH_SCHEMA = json.loads((_ROOT / "server/llm/synthesize_schema.json").read_text())
+_SYNTH_SCHEMA = {k: v for k, v in _SYNTH_SCHEMA.items() if not k.startswith("$")}  # strip $comment
+
 _FORCE_MOCK = os.environ.get("MOCK_LLM", "").lower() in {"1", "true", "yes"}
 _PROVIDER = os.environ.get("LLM_PROVIDER", "").lower().strip()
 
@@ -49,8 +57,12 @@ _INCEPTION_MODEL = os.environ.get("INCEPTION_MODEL", "mercury-2")
 
 _ANTHROPIC_MODEL = os.environ.get("AGENT_MODEL", "claude-opus-5")
 
-_ACTION_KEYS = ("type", "targetId", "url", "amount", "text", "ms", "index")
-_ACTION_TYPES = {"click", "scroll", "type", "wait", "extract", "navigate", "open_tab", "switch_tab", "back"}
+_ACTION_KEYS = ("type", "targetId", "url", "amount", "text", "ms", "index", "value", "checked", "key", "fields")
+_ACTION_TYPES = {
+    "click", "scroll", "type", "wait", "extract", "navigate", "open_tab", "switch_tab", "back",
+    "select", "check", "hover", "press_key", "fill_form", "remember", "note",
+    "save_image", "compile_report",
+}
 
 
 def resolve_provider() -> str:
@@ -90,10 +102,31 @@ def _validate(data: Any) -> None:
         a = data.get("action") or {}
         if a.get("type") not in _ACTION_TYPES:
             raise ValueError("bad action.type")
-        if a["type"] in {"click", "type"} and not a.get("targetId"):
+        if a["type"] in {"click", "type", "select", "check"} and not a.get("targetId"):
             raise ValueError(f"{a['type']} needs targetId")
         if a["type"] in {"navigate", "open_tab"} and not a.get("url"):
             raise ValueError(f"{a['type']} needs url")
+        if a["type"] == "press_key" and not a.get("key"):
+            raise ValueError("press_key needs key")
+        if a["type"] == "fill_form" and not a.get("fields"):
+            raise ValueError("fill_form needs fields")
+        # remember has no dedicated schema fields — it repurposes targetId as the memory
+        # key and text as the value, since those already exist and it's client-side only.
+        if a["type"] == "remember" and not (a.get("targetId") and a.get("text")):
+            raise ValueError("remember needs targetId (key) and text (value)")
+        # note is remember's ephemeral, this-task-only sibling — same field reuse, but
+        # targetId (an optional short label) is not required, only text.
+        if a["type"] == "note" and not a.get("text"):
+            raise ValueError("note needs text")
+        # save_image repurposes targetId as the image node to download; text (a caption
+        # explaining why it's notable) is optional, since not every save needs one.
+        if a["type"] == "save_image" and not a.get("targetId"):
+            raise ValueError("save_image needs targetId")
+        # compile_report has no dedicated schema fields either — it repurposes text as
+        # the report's title/closing summary; no targetId, since it bundles prior work,
+        # not one page element.
+        if a["type"] == "compile_report" and not a.get("text"):
+            raise ValueError("compile_report needs text")
     if data["status"] == "done" and not data.get("answer"):
         raise ValueError("done needs answer")
 
@@ -245,6 +278,218 @@ def decide_step(req: dict) -> tuple[dict, str]:
         return mock_step(req), "mock"
     try:
         return _STEP_FNS[provider](req), engine_label()
+    except Exception as e:
+        msg = str(e)
+        code = "llm_malformed" if "validation" in msg or "schema" in msg else "llm_unavailable"
+        return {"status": "error", "code": code, "message": msg[:300]}, "error"
+
+
+# --------------------------------------------------------------------------- planning
+def _validate_plan(data: Any) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("not an object")
+    subtasks = data.get("subtasks")
+    if not isinstance(subtasks, list) or not subtasks or len(subtasks) > 5:
+        raise ValueError("bad subtasks")
+    for s in subtasks:
+        if not isinstance(s, dict) or not s.get("id") or not s.get("goal"):
+            raise ValueError("subtask needs id + goal")
+
+
+def mock_plan(req: dict) -> dict:
+    return {
+        "subtasks": [{"id": "sub_1", "goal": req.get("prompt", ""), "startUrl": None}],
+        "reasoning": "mock planner: single subtask",
+    }
+
+
+def _inception_plan(req: dict) -> dict:
+    import httpx
+
+    messages = [
+        {"role": "system", "content": _PLAN_SYSTEM},
+        {"role": "user", "content": _build_plan_message(req)},
+    ]
+    body = {
+        "model": _INCEPTION_MODEL,
+        "temperature": 0,
+        "messages": messages,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "agent_plan", "strict": False, "schema": _PLAN_SCHEMA},
+        },
+    }
+
+    last_err = None
+    with httpx.Client(timeout=30.0) as http:
+        for _ in range(2):
+            r = http.post(
+                f"{_INCEPTION_BASE}/chat/completions",
+                headers={"Authorization": f"Bearer {_INCEPTION_KEY}"},
+                json=body,
+            )
+            r.raise_for_status()
+            content = r.json()["choices"][0]["message"]["content"]
+            try:
+                data = json.loads(content)
+                _validate_plan(data)
+                return data
+            except Exception as e:  # one retry-with-correction
+                last_err = e
+                body["messages"] = messages + [
+                    {"role": "assistant", "content": content},
+                    {"role": "user", "content": f"That was invalid ({e}). Return ONLY valid JSON matching the schema."},
+                ]
+    raise ValueError(f"Mercury output failed validation twice: {last_err}")
+
+
+def _anthropic_plan(req: dict) -> dict:
+    import anthropic
+
+    client = anthropic.Anthropic()
+    messages = [{"role": "user", "content": _build_plan_message(req)}]
+
+    last_err = None
+    for _ in range(2):
+        resp = client.messages.create(
+            model=_ANTHROPIC_MODEL,
+            max_tokens=4000,
+            system=_PLAN_SYSTEM,
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": _PLAN_SCHEMA}},
+            messages=messages,
+        )
+        raw = next(b.text for b in resp.content if b.type == "text")
+        try:
+            data = json.loads(raw)
+            _validate_plan(data)
+            return data
+        except Exception as e:
+            last_err = e
+            messages = [
+                {"role": "user", "content": _build_plan_message(req)
+                 + f"\n\n(Previous reply invalid: {e}. Return valid JSON matching the schema.)"}
+            ]
+    raise ValueError(f"LLM output failed validation twice: {last_err}")
+
+
+_PLAN_FNS = {"inception": _inception_plan, "anthropic": _anthropic_plan, "mock": mock_plan}
+
+
+def decide_plan(req: dict) -> tuple[dict, str]:
+    """Returns (response_dict, engine) where engine is the model id or 'mock'/'error'."""
+    provider = resolve_provider()
+    if provider == "mock":
+        return mock_plan(req), "mock"
+    try:
+        return _PLAN_FNS[provider](req), engine_label()
+    except Exception as e:
+        msg = str(e)
+        code = "llm_malformed" if "validation" in msg or "schema" in msg else "llm_unavailable"
+        return {"status": "error", "code": code, "message": msg[:300]}, "error"
+
+
+# ------------------------------------------------------------------------- synthesis
+def _validate_synthesize(data: Any) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("not an object")
+    if not data.get("answer"):
+        raise ValueError("synthesize needs answer")
+
+
+def _local_concat(req: dict) -> str:
+    # Mirrors extension/background.js's localSynthesize fallback so mock mode is
+    # consistent whichever side does it.
+    parts = []
+    for r in req.get("subAgentResults") or []:
+        goal = r.get("goal", "")
+        answer = r.get("answer") or f"(failed: {r.get('error') or 'unknown error'})"
+        parts.append(f"## {goal}\n{answer}\n")
+    return "\n".join(parts)
+
+
+def mock_synthesize(req: dict) -> dict:
+    return {"answer": _local_concat(req)}
+
+
+def _inception_synthesize(req: dict) -> dict:
+    import httpx
+
+    messages = [
+        {"role": "system", "content": _SYNTH_SYSTEM},
+        {"role": "user", "content": _build_synth_message(req)},
+    ]
+    body = {
+        "model": _INCEPTION_MODEL,
+        "temperature": 0,
+        "messages": messages,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "agent_synthesize", "strict": False, "schema": _SYNTH_SCHEMA},
+        },
+    }
+
+    last_err = None
+    with httpx.Client(timeout=30.0) as http:
+        for _ in range(2):
+            r = http.post(
+                f"{_INCEPTION_BASE}/chat/completions",
+                headers={"Authorization": f"Bearer {_INCEPTION_KEY}"},
+                json=body,
+            )
+            r.raise_for_status()
+            content = r.json()["choices"][0]["message"]["content"]
+            try:
+                data = json.loads(content)
+                _validate_synthesize(data)
+                return data
+            except Exception as e:  # one retry-with-correction
+                last_err = e
+                body["messages"] = messages + [
+                    {"role": "assistant", "content": content},
+                    {"role": "user", "content": f"That was invalid ({e}). Return ONLY valid JSON matching the schema."},
+                ]
+    raise ValueError(f"Mercury output failed validation twice: {last_err}")
+
+
+def _anthropic_synthesize(req: dict) -> dict:
+    import anthropic
+
+    client = anthropic.Anthropic()
+    messages = [{"role": "user", "content": _build_synth_message(req)}]
+
+    last_err = None
+    for _ in range(2):
+        resp = client.messages.create(
+            model=_ANTHROPIC_MODEL,
+            max_tokens=4000,
+            system=_SYNTH_SYSTEM,
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": _SYNTH_SCHEMA}},
+            messages=messages,
+        )
+        raw = next(b.text for b in resp.content if b.type == "text")
+        try:
+            data = json.loads(raw)
+            _validate_synthesize(data)
+            return data
+        except Exception as e:
+            last_err = e
+            messages = [
+                {"role": "user", "content": _build_synth_message(req)
+                 + f"\n\n(Previous reply invalid: {e}. Return valid JSON matching the schema.)"}
+            ]
+    raise ValueError(f"LLM output failed validation twice: {last_err}")
+
+
+_SYNTH_FNS = {"inception": _inception_synthesize, "anthropic": _anthropic_synthesize, "mock": mock_synthesize}
+
+
+def decide_synthesize(req: dict) -> tuple[dict, str]:
+    """Returns (response_dict, engine) where engine is the model id or 'mock'/'error'."""
+    provider = resolve_provider()
+    if provider == "mock":
+        return mock_synthesize(req), "mock"
+    try:
+        return _SYNTH_FNS[provider](req), engine_label()
     except Exception as e:
         msg = str(e)
         code = "llm_malformed" if "validation" in msg or "schema" in msg else "llm_unavailable"
