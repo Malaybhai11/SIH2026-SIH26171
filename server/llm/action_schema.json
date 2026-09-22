@@ -8,14 +8,33 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["click", "scroll", "type", "wait", "extract", "navigate", "open_tab", "switch_tab", "back"]
+          "enum": [
+            "click", "scroll", "type", "wait", "extract", "navigate", "open_tab", "switch_tab", "back",
+            "select", "check", "hover", "press_key", "fill_form", "remember", "note",
+            "save_image", "compile_report"
+          ]
         },
-        "targetId": { "type": ["string", "null"], "description": "a node id from the snapshot; required for click/type" },
+        "targetId": { "type": ["string", "null"], "description": "a node id from the snapshot; required for click/type/select/check; for remember, a short memory key; for note, an optional short label; for save_image, the image node's id" },
         "url": { "type": ["string", "null"], "description": "absolute URL; required for navigate/open_tab" },
         "amount": { "type": ["integer", "null"], "description": "pixels for scroll (positive = down)" },
-        "text": { "type": ["string", "null"], "description": "text to type" },
+        "text": { "type": ["string", "null"], "description": "text to type; for remember, the value to save; for note, the note text; for save_image, an optional caption; for compile_report, the report title/closing summary" },
         "ms": { "type": ["integer", "null"], "description": "milliseconds for wait" },
-        "index": { "type": ["integer", "null"], "description": "0-based tab index for switch_tab" }
+        "index": { "type": ["integer", "null"], "description": "0-based tab index for switch_tab" },
+        "value": { "type": ["string", "null"], "description": "option value/text for select" },
+        "checked": { "type": ["boolean", "null"], "description": "desired checked state for check" },
+        "key": { "type": ["string", "null"], "description": "key name for press_key (Enter/Tab/Escape/ArrowDown/...)" },
+        "fields": {
+          "type": ["array", "null"],
+          "description": "targetId+text pairs for fill_form",
+          "items": {
+            "type": "object",
+            "properties": {
+              "targetId": { "type": "string" },
+              "text": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
       },
       "required": ["type"],
       "additionalProperties": false

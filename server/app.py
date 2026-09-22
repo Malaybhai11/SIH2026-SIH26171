@@ -14,6 +14,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from server.routes.agent_step import router as agent_router
+from server.routes.agent_plan import router as agent_plan_router
+from server.routes.agent_synthesize import router as agent_synthesize_router
 
 app = FastAPI(title="Privacy-Preserving Browser Agent — step server", version="0.1.0")
 
@@ -26,6 +28,8 @@ app.add_middleware(
 )
 
 app.include_router(agent_router)
+app.include_router(agent_plan_router)
+app.include_router(agent_synthesize_router)
 
 
 @app.get("/health")

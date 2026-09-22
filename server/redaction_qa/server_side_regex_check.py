@@ -80,6 +80,11 @@ def _scrub(text: str) -> tuple[str, dict[str, int]]:
     return text, hits
 
 
+def scrub_text(text: str) -> tuple[str, dict[str, int]]:
+    """Scrub raw text using deterministic regex rules; returns (repaired_text, hits)."""
+    return _scrub(text)
+
+
 @dataclass
 class QAResult:
     sanitized_dom: list
