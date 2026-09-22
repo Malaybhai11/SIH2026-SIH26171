@@ -3,13 +3,12 @@
     pip install -r requirements.txt
     uvicorn server.app:app --reload --port 8000
 
-Runs fully offline: without ANTHROPIC_API_KEY (or with MOCK_LLM=1) the step decider
-falls back to a deterministic mock stepper.
+Provider is chosen by LLM_PROVIDER (inception | anthropic | mock) or auto-detected
+from whichever key is present. With no key (or MOCK_LLM=1) it runs a deterministic
+mock stepper, fully offline. Config is read from a gitignored .env at the repo root.
 """
 
 from __future__ import annotations
-
-import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,7 +30,6 @@ app.include_router(agent_router)
 
 @app.get("/health")
 def health() -> dict:
-    from server.llm.client import _FORCE_MOCK, _MODEL
+    from server.llm.client import resolve_provider, engine_label
 
-    engine = "mock" if (_FORCE_MOCK or not os.environ.get("ANTHROPIC_API_KEY")) else _MODEL
-    return {"ok": True, "engine": engine}
+    return {"ok": True, "provider": resolve_provider(), "engine": engine_label()}

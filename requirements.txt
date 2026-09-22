@@ -2,6 +2,7 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 pydantic==2.10.3
+httpx==0.28.1
 
-# LLM (optional at runtime — server falls back to MOCK_LLM mode without a key)
-anthropic==0.68.0
+# Anthropic provider (optional — only needed if LLM_PROVIDER=anthropic)
+# anthropic==0.68.0

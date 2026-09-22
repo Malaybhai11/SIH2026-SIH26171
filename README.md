@@ -7,8 +7,9 @@ On-device visual perception + local redaction for a lightweight browser agent.
   (typed tokens in text, hard black-box on the screenshot), then sends only the
   sanitized context to the server.
 - **Server** (FastAPI): stateless `/agent/step`. Re-checks redaction (defense in depth),
-  asks an LLM for the next browser action or a final answer via a strict JSON schema.
-  Falls back to a deterministic mock stepper with no API key.
+  asks an LLM (Inception Mercury 2 by default, Claude optional) for the next browser
+  action or a final answer via a strict JSON schema. Falls back to a deterministic mock
+  stepper with no API key.
 - **Eval**: `eval/metrics.py` produces the PII recall/precision + redaction-precision
   numbers for scoring; latency is measured live in the popup.
 
@@ -22,14 +23,21 @@ See `docs/PRD.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/api-contract.md`,
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-# offline / no key — deterministic mock stepper:
-MOCK_LLM=1 uvicorn server.app:app --reload --port 8000
-# real LLM — needs ANTHROPIC_API_KEY (or `ant auth login`):
+
+cp .env.example .env      # then put your INCEPTION_API_KEY in .env
 uvicorn server.app:app --reload --port 8000
 ```
 
-`GET /health` → `{"ok": true, "engine": "mock" | "claude-opus-5"}`
-Override the model with `AGENT_MODEL=claude-haiku-4-5` for lower latency in a demo.
+Provider is set in `.env` via `LLM_PROVIDER`:
+
+| value | needs | notes |
+|---|---|---|
+| `inception` (default) | `INCEPTION_API_KEY` | Mercury 2 — diffusion LLM, OpenAI-compatible, ~5–10× faster |
+| `anthropic` | `ANTHROPIC_API_KEY` + `pip install anthropic` | Claude, `AGENT_MODEL` overridable |
+| `mock` | nothing | deterministic offline stepper (also `MOCK_LLM=1`) |
+
+`GET /health` → `{"ok": true, "provider": "inception", "engine": "mercury-2"}`.
+`.env` is gitignored; commit only `.env.example`.
 
 ### 2. Extension
 
