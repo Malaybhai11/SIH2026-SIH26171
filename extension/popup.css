@@ -8,6 +8,13 @@
   --warn: #b45309;
   --err: #b91c1c;
   --chip: #f1f5f9;
+  --badge-run-bg: #dbeafe;
+  --badge-run-fg: #1d4ed8;
+  --badge-done-bg: #dcfce7;
+  --badge-warn-bg: #fef3c7;
+  --badge-warn-fg: #b45309;
+  --badge-err-bg: #fee2e2;
+  --surface: #ffffff;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -17,7 +24,16 @@
     --border: #2c2e33;
     --accent: #60a5fa;
     --ok: #4ade80;
+    --warn: #fbbf24;
+    --err: #f87171;
     --chip: #23252a;
+    --badge-run-bg: #1e3a5f;
+    --badge-run-fg: #93c5fd;
+    --badge-done-bg: #14532d;
+    --badge-warn-bg: #3f2d0a;
+    --badge-warn-fg: #fbbf24;
+    --badge-err-bg: #4c1d1d;
+    --surface: #1c1d21;
   }
 }
 
@@ -59,15 +75,19 @@ h2 {
   color: var(--muted);
 }
 .badge.run {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--badge-run-bg);
+  color: var(--badge-run-fg);
 }
 .badge.done {
-  background: #dcfce7;
+  background: var(--badge-done-bg);
   color: var(--ok);
 }
+.badge.warn {
+  background: var(--badge-warn-bg);
+  color: var(--badge-warn-fg);
+}
 .badge.err {
-  background: #fee2e2;
+  background: var(--badge-err-bg);
   color: var(--err);
 }
 textarea,
@@ -94,6 +114,19 @@ input[type="text"] {
 .btns {
   display: flex;
   gap: 8px;
+}
+.link-btn {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  font: inherit;
+  font-weight: 600;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
 }
 button {
   flex: 1;
@@ -122,6 +155,27 @@ button#cancel {
   max-height: 160px;
   overflow: auto;
 }
+.answer p,
+.answer ul,
+.answer ol {
+  margin: 0 0 6px;
+  padding-left: 20px;
+}
+.answer p:last-child,
+.answer ul:last-child,
+.answer ol:last-child {
+  margin-bottom: 0;
+}
+.answer code {
+  background: var(--chip);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.answer a {
+  color: var(--accent);
+}
 .muted {
   color: var(--muted);
 }
@@ -138,16 +192,101 @@ button#cancel {
   color: var(--muted);
   font-weight: 600;
 }
-details {
+/* Tab bar — buttons wrap rather than overflow at popup width; tab-hidden
+   panels (Plan/Sub-agents when there's nothing to show yet) hide their
+   button entirely via the `hidden` attribute, same as any other tab. */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+.tab-btn {
+  flex: 0 0 auto;
+  font: inherit;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tab-btn:hover {
+  background: var(--chip);
+}
+.tab-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.tab-btn.active .pill {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+.panel {
   margin-top: 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 8px;
+  background: var(--surface);
 }
-summary {
-  cursor: pointer;
+.panel[hidden] {
+  display: none;
+}
+
+.answer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.answer-head h2 {
+  margin: 0;
+}
+.copy-btn {
+  flex: 0 0 auto;
+  font-size: 11px;
   font-weight: 600;
-  font-size: 12px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+.copy-btn:hover {
+  background: var(--chip);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.chips[hidden] {
+  display: none;
+}
+.chip {
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--muted);
+  cursor: pointer;
+  max-width: 100%;
+  text-align: left;
+}
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .log {
   list-style: none;
@@ -190,4 +329,119 @@ table.metrics td {
 table.metrics th:first-child,
 table.metrics td:first-child {
   text-align: left;
+}
+.subagent-row {
+  padding: 6px 0;
+  border-bottom: 1px dotted var(--border);
+}
+.subagent-row:last-child {
+  border-bottom: none;
+}
+.subagent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.subagent-main {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.subagent-thumb {
+  flex: 0 0 auto;
+  width: 80px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.subagent-info {
+  flex: 1;
+  min-width: 0;
+}
+.subagent-thinking {
+  color: var(--muted);
+  font-style: italic;
+  margin-top: 2px;
+}
+
+/* Take-over / confirmation banners — reuse existing badge/button colors rather
+   than inventing a new visual language. */
+.confirm-banner,
+.pause-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.confirm-banner[hidden],
+.pause-banner[hidden] {
+  display: none;
+}
+.confirm-banner {
+  background: var(--badge-warn-bg);
+  border: 1px solid var(--warn);
+}
+.confirm-banner .small {
+  color: var(--warn);
+  font-weight: 600;
+}
+.pause-banner {
+  background: var(--badge-run-bg);
+  border: 1px solid var(--accent);
+}
+.pause-banner .small {
+  color: var(--badge-run-fg);
+}
+.confirm-banner button,
+.pause-banner button {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+}
+.allow-btn {
+  background: var(--ok);
+}
+.deny-btn {
+  background: transparent;
+  color: var(--fg);
+}
+
+.chip-group-label {
+  margin-top: 10px;
+  font-weight: 600;
+}
+.chip-group-label[hidden] {
+  display: none;
+}
+
+.save-template-row {
+  margin-top: 2px;
+}
+.small-link {
+  flex: 0 0 auto;
+  width: auto;
+  margin-bottom: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.note-row {
+  padding: 6px 0;
+  border-bottom: 1px dotted var(--border);
+}
+.note-row:last-child {
+  border-bottom: none;
+}
+.note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+  font-size: 11px;
 }

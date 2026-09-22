@@ -11,6 +11,25 @@
       <span id="status" class="badge">IDLE</span>
     </header>
 
+    <!-- Confirmation banner — needs attention regardless of which tab is open, so it
+         sits above the tab bar entirely. Hidden unless AWAITING_CONFIRMATION. -->
+    <div id="confirmBanner" class="confirm-banner" hidden>
+      <div id="confirmText" class="small"></div>
+      <div class="btns">
+        <button id="confirmAllow" class="allow-btn">Allow</button>
+        <button id="confirmDeny" class="deny-btn">Deny</button>
+      </div>
+    </div>
+
+    <!-- Pause banner — shown whenever the task is paused (user take-over or an
+         auto-detected CAPTCHA). Neutral/info styling, not error-red. -->
+    <div id="pauseBanner" class="pause-banner" hidden>
+      <div id="pauseText" class="small"></div>
+      <button id="resumeTask">Resume</button>
+    </div>
+
+    <button id="openDashboard" class="link-btn">History &amp; Memory</button>
+
     <section class="input-row">
       <textarea
         id="prompt"
@@ -21,34 +40,99 @@
         <label class="opt"
           ><input type="checkbox" id="localOnly" /> Local-only (no server)</label
         >
+        <label class="opt"
+          ><input type="checkbox" id="multiAgent" checked /> Multi-agent mode</label
+        >
         <input id="serverUrl" type="text" value="http://localhost:8000/agent/step" />
+        <label class="opt"
+          >Max iterations
+          <input id="maxIterations" type="number" min="1" max="300" step="1" value="40" style="width: 4.5em" />
+        </label>
         <div class="btns">
           <button id="run">Run</button>
+          <button id="takeOver" hidden>Take over</button>
           <button id="cancel" disabled>Cancel</button>
         </div>
+        <div class="btns save-template-row">
+          <button id="saveTemplateBtn" type="button" class="link-btn small-link">Save as template</button>
+        </div>
+        <input
+          id="templateLabel"
+          type="text"
+          placeholder="Template label — press Enter to save"
+          hidden
+        />
       </div>
     </section>
 
-    <section>
-      <h2>Answer</h2>
+    <!-- Tab bar. Panels below are shown/hidden via the `hidden` attribute from
+         popup.js — same lightweight pattern as dashboard.html's tab bar. The
+         integration pass can add more tab buttons + panels alongside these
+         without touching the switching logic (it keys off data-tab). -->
+    <div class="tabs" id="tabs">
+      <button id="tabTask" class="tab-btn active" data-tab="task">Task</button>
+      <button id="tabPlan" class="tab-btn" data-tab="plan" hidden>
+        Plan <span id="planCount" class="pill">0</span>
+      </button>
+      <button id="tabSubAgents" class="tab-btn" data-tab="subAgents" hidden>
+        Sub-agents <span id="subAgentsCount" class="pill">0</span>
+      </button>
+      <button id="tabNotes" class="tab-btn" data-tab="notes" hidden>
+        Notes <span id="notesCount" class="pill">0</span>
+      </button>
+      <button id="tabRedact" class="tab-btn" data-tab="redact">
+        Redaction <span id="redactCount" class="pill">0</span>
+      </button>
+      <button id="tabMetrics" class="tab-btn" data-tab="metrics">Metrics</button>
+      <button id="tabLog" class="tab-btn" data-tab="log">
+        Log <span id="logCount" class="pill">0</span>
+      </button>
+    </div>
+
+    <section class="panel" id="taskPanel">
+      <div class="answer-head">
+        <h2>Answer</h2>
+        <button id="copyAnswer" class="copy-btn" type="button">Copy</button>
+      </div>
       <div id="answer" class="answer muted">—</div>
       <div id="collected" class="muted small"></div>
+
+      <div class="chip-group-label small muted">Try:</div>
+      <div id="chips" class="chips">
+        <button class="chip" type="button">Find the top 5 trending repos on GitHub</button>
+        <button class="chip" type="button">Summarize the top posts on Hacker News</button>
+        <button class="chip" type="button">Search Wikipedia for the history of the internet</button>
+        <button class="chip" type="button">Find today's top headlines on a news site</button>
+        <button class="chip" type="button">Look up the weather forecast for this week</button>
+      </div>
+
+      <div id="templateChipsGroup" class="chip-group-label small muted" hidden>Saved:</div>
+      <div id="templateChips" class="chips" hidden></div>
     </section>
 
-    <details id="redactPanel">
-      <summary>What was redacted <span id="redactCount" class="pill">0</span></summary>
+    <section class="panel" id="planPanel" hidden>
+      <div id="planBody" class="small"></div>
+    </section>
+
+    <section class="panel" id="subAgentsPanel" hidden>
+      <div id="subAgentsBody" class="small"></div>
+    </section>
+
+    <section class="panel" id="notesPanel" hidden>
+      <div id="notesBody" class="small"></div>
+    </section>
+
+    <section class="panel" id="redactPanel" hidden>
       <div id="redactBody" class="small"></div>
-    </details>
+    </section>
 
-    <details id="metricsPanel">
-      <summary>Metrics</summary>
+    <section class="panel" id="metricsPanel" hidden>
       <div id="metricsBody" class="small"></div>
-    </details>
+    </section>
 
-    <section>
-      <h2>Status log</h2>
+    <section class="panel" id="logPanel" hidden>
       <ul id="log" class="log"></ul>
     </section>
   </body>
-  <script src="popup.js"></script>
+  <script src="popup.js" type="module"></script>
 </html>

@@ -9,6 +9,8 @@
     "watch": "node build.mjs --watch",
     "clean": "rm -rf dist",
     "test:redact": "node --test extension/lib/redact.test.mjs",
+    "test:human": "node --test extension/lib/humanBehavior.test.mjs",
+    "test": "npm run test:redact && npm run test:human",
     "eval": "python3 eval/metrics.py"
   },
   "devDependencies": {

@@ -13,6 +13,29 @@
       h1 {
         font-size: 18px;
       }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin: 16px 0;
+      }
+      .tabs button {
+        font: inherit;
+        font-weight: 600;
+        padding: 6px 12px;
+        border: 1px solid #e3e4e8;
+        border-radius: 999px;
+        background: #fff;
+        color: #1b1b1f;
+        cursor: pointer;
+      }
+      .tabs button.active {
+        background: #2563eb;
+        color: #fff;
+        border-color: #2563eb;
+      }
+      .panel[hidden] {
+        display: none;
+      }
       .grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -55,78 +78,278 @@
       .muted {
         color: #6b7280;
       }
+      .entry {
+        background: #fff;
+        border: 1px solid #e3e4e8;
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+      }
+      .entry .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 8px;
+      }
+      .entry .prompt {
+        font-weight: 600;
+      }
+      .entry .meta {
+        font-size: 12px;
+        color: #6b7280;
+      }
+      .entry .answer {
+        margin-top: 6px;
+        white-space: pre-wrap;
+      }
+      .subagents {
+        margin: 6px 0 0 16px;
+        padding: 0;
+        font-size: 12px;
+        color: #4b5563;
+      }
+      .subagents li {
+        margin: 2px 0;
+      }
+      .status-pill {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 999px;
+        background: #f1f5f9;
+        font-size: 11px;
+        font-weight: 600;
+      }
+      .status-pill.DONE {
+        background: #dcfce7;
+        color: #15803d;
+      }
+      .status-pill.ERROR {
+        background: #fee2e2;
+        color: #b91c1c;
+      }
+      .toolbar {
+        margin: 8px 0 16px;
+      }
+      .toolbar button {
+        font: inherit;
+        padding: 5px 10px;
+        border: 1px solid #e3e4e8;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .fact-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        background: #fff;
+        border: 1px solid #e3e4e8;
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin-bottom: 8px;
+      }
+      .fact-row .fk {
+        font-weight: 600;
+        min-width: 120px;
+      }
+      .fact-row .fv {
+        flex: 1;
+      }
+      .fact-row .fsrc {
+        font-size: 11px;
+        color: #6b7280;
+      }
+      .fact-row button {
+        font: inherit;
+        padding: 3px 8px;
+        border: 1px solid #e3e4e8;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .add-form {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+      }
+      .add-form input {
+        font: inherit;
+        padding: 5px 8px;
+        border: 1px solid #e3e4e8;
+        border-radius: 6px;
+      }
+      .add-form input.key {
+        width: 160px;
+      }
+      .add-form input.val,
+      .add-form input.prompt-input {
+        flex: 1;
+        min-width: 160px;
+      }
+      .add-form button {
+        font: inherit;
+        padding: 5px 12px;
+        border: 1px solid #e3e4e8;
+        border-radius: 6px;
+        background: #2563eb;
+        color: #fff;
+        cursor: pointer;
+      }
+      .search-row {
+        margin-bottom: 12px;
+      }
+      .search-row input {
+        font: inherit;
+        width: 100%;
+        max-width: 320px;
+        padding: 6px 8px;
+        border: 1px solid #e3e4e8;
+        border-radius: 6px;
+      }
+      .note-row {
+        background: #fff;
+        border: 1px solid #e3e4e8;
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin-bottom: 8px;
+      }
+      .note-row .nhead {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 11px;
+        color: #6b7280;
+        margin-bottom: 4px;
+      }
+      .template-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        background: #fff;
+        border: 1px solid #e3e4e8;
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin-bottom: 8px;
+      }
+      .template-row .tlabel {
+        font-weight: 600;
+        min-width: 120px;
+      }
+      .template-row .tprompt {
+        flex: 1;
+        color: #4b5563;
+        font-size: 12px;
+      }
+      .template-row button {
+        font: inherit;
+        padding: 3px 8px;
+        border: 1px solid #e3e4e8;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .top-toolbar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .top-toolbar button {
+        font: inherit;
+        padding: 6px 12px;
+        border: 1px solid #e3e4e8;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+      }
+      .import-summary {
+        font-size: 12px;
+        color: #15803d;
+        align-self: center;
+      }
     </style>
   </head>
   <body>
     <h1>Agent Metrics Dashboard</h1>
-    <p class="muted" id="ctx">waiting for a task…</p>
 
-    <div class="grid" id="cards"></div>
+    <div class="top-toolbar">
+      <button id="exportAll">Export</button>
+      <button id="importAllBtn">Import</button>
+      <input type="file" id="importFile" accept=".json" hidden />
+      <span id="importSummary" class="import-summary"></span>
+    </div>
 
-    <h2>Per-iteration latency (ms)</h2>
-    <table id="itertable">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>perceive</th>
-          <th>redact</th>
-          <th>face</th>
-          <th>screen</th>
-          <th>vision total</th>
-          <th>server</th>
-          <th>loop total</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <div class="tabs">
+      <button id="tabLive" class="active">Live</button>
+      <button id="tabHistory">History</button>
+      <button id="tabMemory">Memory</button>
+      <button id="tabNotes">Notes</button>
+      <button id="tabTemplates">Templates</button>
+    </div>
 
-    <script>
-      const STATE_KEY = "agentTaskState";
+    <div class="panel" id="panelLive">
+      <p class="muted" id="ctx">waiting for a task…</p>
 
-      function card(k, v) {
-        return `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
-      }
+      <div class="grid" id="cards"></div>
 
-      function render(s) {
-        if (!s) return;
-        document.getElementById("ctx").textContent =
-          `task: "${s.prompt || "—"}"  ·  status: ${s.status}  ·  vision: ${s.lastVisionMode || "—"}` +
-          (s.localOnly ? "  ·  LOCAL-ONLY" : "");
+      <h2>Per-iteration latency (ms)</h2>
+      <table id="itertable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>perceive</th>
+            <th>redact</th>
+            <th>face</th>
+            <th>screen</th>
+            <th>vision total</th>
+            <th>server</th>
+            <th>loop total</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
 
-        const iters = s.metrics?.iterations ?? [];
-        const avg = iters.length
-          ? Math.round(iters.reduce((a, m) => a + (m.totalMs || 0), 0) / iters.length)
-          : "—";
-        const redTotal = s.lastRedactionSummary?.total ?? 0;
+    <div class="panel" id="panelHistory" hidden>
+      <div class="toolbar">
+        <button id="clearHistory">Clear all history</button>
+      </div>
+      <div class="search-row">
+        <input type="text" id="historySearch" placeholder="Search history by prompt…" />
+      </div>
+      <div id="historyList"></div>
+    </div>
 
-        document.getElementById("cards").innerHTML = [
-          card("Iterations", `${s.iteration || 0}/${s.maxIterations || 6}`),
-          card("Avg loop (ms)", avg + (typeof avg === "number" && avg < 2500 ? " ✓" : "")),
-          card("Items collected", s.accumulatedData?.length ?? 0),
-          card("Redacted spans", redTotal),
-          card("Vision mode", s.lastVisionMode || "—"),
-          card("Screen state", s.lastScreenState || "—"),
-        ].join("");
+    <div class="panel" id="panelMemory" hidden>
+      <div class="toolbar">
+        <button id="clearMemory">Clear all memory</button>
+      </div>
+      <div class="add-form">
+        <input type="text" class="key" id="newFactKey" placeholder="key" />
+        <input type="text" class="val" id="newFactValue" placeholder="value" />
+        <button id="addFact">Add fact</button>
+      </div>
+      <div id="memoryList"></div>
+    </div>
 
-        document.querySelector("#itertable tbody").innerHTML = iters
-          .map(
-            (m) =>
-              `<tr><td>${m.iteration}</td><td>${m.perceiveMs ?? "-"}</td><td>${m.redactMs ?? "-"}</td><td>${m.faceMs ?? "-"}</td><td>${m.screenMs ?? "-"}</td><td>${m.visionTotalMs ?? "-"}</td><td>${m.serverMs ?? "-"}</td><td>${m.totalMs ?? "-"}</td></tr>`,
-          )
-          .join("");
-      }
+    <div class="panel" id="panelNotes" hidden>
+      <div class="toolbar">
+        <button id="clearNotesBtn">Clear all notes</button>
+      </div>
+      <div id="notesList"></div>
+    </div>
 
-      async function tick() {
-        try {
-          const r = await chrome.storage.session.get(STATE_KEY);
-          render(r?.[STATE_KEY]);
-        } catch (e) {
-          /* ignore */
-        }
-      }
-      chrome.storage.session.onChanged?.addListener(tick);
-      setInterval(tick, 1000);
-      tick();
-    </script>
+    <div class="panel" id="panelTemplates" hidden>
+      <div class="add-form">
+        <input type="text" class="key" id="newTemplateLabel" placeholder="label" />
+        <input type="text" class="prompt-input" id="newTemplatePrompt" placeholder="prompt" />
+        <button id="addTemplate">Add template</button>
+      </div>
+      <div id="templatesList"></div>
+    </div>
+
+    <script src="dashboard.js"></script>
   </body>
 </html>

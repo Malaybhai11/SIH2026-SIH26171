@@ -23,7 +23,7 @@ const entries = [
   { in: `${SRC}/popup.js`, out: `${OUT}/popup.js`, format: "iife" },
 ];
 
-const staticFiles = ["manifest.json", "popup.html", "popup.css", "dashboard.html"];
+const staticFiles = ["manifest.json", "popup.html", "popup.css", "dashboard.html", "dashboard.js"];
 
 async function copyStatic() {
   await mkdir(OUT, { recursive: true });
