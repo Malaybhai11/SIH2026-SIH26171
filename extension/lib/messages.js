@@ -31,8 +31,8 @@ export const STATUS = Object.freeze({
 export const CONTRACT_VERSION = 1;
 
 export const DEFAULTS = Object.freeze({
-  maxIterations: 6,
-  iterationTimeoutMs: 12000,
+  maxIterations: 8,
+  iterationTimeoutMs: 15000,
   serverUrl: "http://localhost:8000/agent/step",
   scrollAmount: 900,
   settleMs: 700,

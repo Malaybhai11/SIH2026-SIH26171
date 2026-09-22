@@ -20,7 +20,7 @@ function freshState() {
     serverUrl: DEFAULTS.serverUrl,
     localOnly: false,
     tabId: null,
-    targetCount: 10,
+    targetCount: 0,
     log: [],
     accumulatedData: [],
     answer: null,
@@ -57,8 +57,89 @@ async function broadcast() {
 }
 
 function parseTargetCount(prompt) {
-  const m = prompt.match(/\btop\s+(\d{1,3})\b/i) || prompt.match(/\b(\d{1,3})\s+(?:posts|items|results|articles|tweets)\b/i);
-  return m ? Math.min(parseInt(m[1], 10), 50) : 10;
+  const m =
+    prompt.match(/\btop\s+(\d{1,3})\b/i) ||
+    prompt.match(/\b(\d{1,3})\s+(?:posts|items|results|articles|tweets|links|stories)\b/i);
+  return m ? Math.min(parseInt(m[1], 10), 50) : 0; // 0 = not a collection task
+}
+
+const NAV_ACTIONS = new Set(["navigate", "open_tab", "switch_tab", "back"]);
+
+function waitForTabLoad(tabId, timeoutMs = 12000) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = async () => {
+      try {
+        const t = await chrome.tabs.get(tabId);
+        if (t.status === "complete") return resolve(true);
+      } catch (e) {
+        return resolve(false);
+      }
+      if (Date.now() - start > timeoutMs) return resolve(false);
+      setTimeout(check, 250);
+    };
+    check();
+  });
+}
+
+async function getOpenTabs() {
+  try {
+    const tabs = await chrome.tabs.query({ currentWindow: true });
+    return tabs.map((t, i) => ({
+      index: i,
+      active: t.id === STATE.tabId,
+      title: (t.title || "").slice(0, 80),
+      url: t.url || "",
+    }));
+  } catch (e) {
+    return [];
+  }
+}
+
+async function getCurrentUrl() {
+  try {
+    return (await chrome.tabs.get(STATE.tabId))?.url ?? null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Navigation actions run here (need chrome.tabs); DOM actions go to the content script.
+async function navAction(action) {
+  try {
+    if (action.type === "navigate") {
+      await chrome.tabs.update(STATE.tabId, { url: action.url, active: true });
+      await waitForTabLoad(STATE.tabId);
+    } else if (action.type === "open_tab") {
+      const t = await chrome.tabs.create({ url: action.url, active: true });
+      STATE.tabId = t.id;
+      await waitForTabLoad(STATE.tabId);
+    } else if (action.type === "switch_tab") {
+      const tabs = await chrome.tabs.query({ currentWindow: true });
+      const idx = Math.max(0, Math.min(tabs.length - 1, action.index ?? 0));
+      if (tabs[idx]) {
+        await chrome.tabs.update(tabs[idx].id, { active: true });
+        STATE.tabId = tabs[idx].id;
+      }
+    } else if (action.type === "back") {
+      await chrome.tabs.goBack(STATE.tabId);
+      await waitForTabLoad(STATE.tabId);
+    }
+    await new Promise((r) => setTimeout(r, DEFAULTS.settleMs));
+    const ready = await ensureContentScript();
+    return ready ? { ok: true } : { ok: false, error: "content script unavailable after navigation" };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+async function dispatchAction(action) {
+  if (NAV_ACTIONS.has(action.type)) return navAction(action);
+  return withTimeout(
+    chrome.tabs.sendMessage(STATE.tabId, { type: MSG.EXECUTE_ACTION, action }),
+    DEFAULTS.iterationTimeoutMs,
+    "content-action",
+  );
 }
 
 function dedupeKey(item) {
@@ -110,7 +191,7 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
-function buildRequest(snapshot) {
+async function buildRequest(snapshot) {
   return {
     contractVersion: CONTRACT_VERSION,
     taskId: STATE.taskId,
@@ -120,6 +201,8 @@ function buildRequest(snapshot) {
     screenState: snapshot.screenState ?? "unknown",
     screenStateConfidence: snapshot.screenStateConfidence ?? 0.5,
     siteConfigId: snapshot.meta?.siteConfigId ?? "generic",
+    currentUrl: await getCurrentUrl(),
+    openTabs: await getOpenTabs(),
     sendScreenshot: !!snapshot.sendScreenshot,
     redactedScreenshot: snapshot.sendScreenshot ? snapshot.redactedScreenshot ?? null : null,
     sanitizedDom: snapshot.sanitizedDom ?? [],
@@ -132,9 +215,25 @@ function mockStep(reqBody, snapshot) {
   const items = (snapshot.sanitizedDom || [])
     .filter((n) => n.role === "article" || n.href)
     .map((n) => ({ author: n.author, text: n.text, timestamp: n.timestamp, href: n.href }));
-  const projected = new Set(
-    [...STATE.accumulatedData, ...items].map(dedupeKey),
-  ).size;
+
+  if (!STATE.targetCount) {
+    // Not a collection task — the local stepper can't browse/reason.
+    return {
+      status: "done",
+      answer:
+        `[local-only] "${STATE.prompt}" needs a real LLM provider to answer. ` +
+        `Visible items on the page:\n` +
+        (snapshot.sanitizedDom || [])
+          .map((n) => (n.text || "").trim())
+          .filter(Boolean)
+          .slice(0, 15)
+          .map((t) => `- ${t.slice(0, 160)}`)
+          .join("\n"),
+      reasoning: "local stepper cannot answer free-form questions",
+    };
+  }
+
+  const projected = new Set([...STATE.accumulatedData, ...items].map(dedupeKey)).size;
   if (projected >= STATE.targetCount || STATE.iteration >= STATE.maxIterations) {
     return {
       status: "done",
@@ -189,6 +288,14 @@ async function runLoop() {
     // PERCEIVING + REDACTING (redaction runs inside the content script)
     STATE.status = STATUS.PERCEIVING;
     await broadcast();
+
+    // Re-inject after navigations / SPA route changes.
+    if (!(await ensureContentScript())) {
+      STATE.status = STATUS.ERROR;
+      STATE.error = "content script unavailable on this page";
+      log(STATE.error, "error");
+      break;
+    }
     const screenshot = await captureScreenshot();
 
     let snapshot;
@@ -232,7 +339,7 @@ async function runLoop() {
     // REASONING
     STATE.status = STATUS.REASONING;
     await broadcast();
-    const reqBody = buildRequest(snapshot);
+    const reqBody = await buildRequest(snapshot);
     const serverT0 = performance.now();
     const resp = await callServer(reqBody, snapshot);
     const serverMs = Math.round(performance.now() - serverT0);
@@ -265,29 +372,35 @@ async function runLoop() {
 
     // status === "action"
     mergeAccumulated(resp.extracted ?? []);
-    log(`server → ${resp.action?.type} ${resp.reasoning ? "(" + resp.reasoning + ")" : ""}`);
+    const a = resp.action || {};
+    const detail = a.url || a.targetId || (a.amount != null ? `${a.amount}px` : "");
+    log(`server → ${a.type} ${detail} ${resp.reasoning ? "(" + resp.reasoning + ")" : ""}`);
     STATE.status = STATUS.ACTING;
     await broadcast();
 
     try {
-      const actionRes = await withTimeout(
-        chrome.tabs.sendMessage(STATE.tabId, { type: MSG.EXECUTE_ACTION, action: resp.action }),
-        DEFAULTS.iterationTimeoutMs,
-        "content-action",
-      );
+      const actionRes = await dispatchAction(a);
       if (!actionRes?.ok) log(`action failed: ${actionRes?.error ?? "unknown"}`, "warn");
     } catch (e) {
       log(`action dispatch failed: ${e.message}`, "warn");
     }
   }
 
-  // Loop ended without an explicit done → partial answer fallback.
+  // Loop ended without an explicit done → best-effort fallback.
   if (STATE.status !== STATUS.DONE && STATE.status !== STATUS.ERROR) {
     STATE.status = STATUS.DONE;
-    STATE.answer =
-      `Partial result: collected ${STATE.accumulatedData.length} of ${STATE.targetCount} ` +
-      `requested item(s) before the ${STATE.maxIterations}-iteration cap` +
-      (STATE.cancelRequested ? " (cancelled by user)." : ".");
+    if (STATE.cancelRequested) {
+      STATE.answer = "Cancelled by user.";
+    } else if (STATE.accumulatedData.length) {
+      STATE.answer =
+        `Stopped after ${STATE.maxIterations} iterations without a final answer. ` +
+        `Collected ${STATE.accumulatedData.length} item(s) so far` +
+        (STATE.targetCount ? ` (target ${STATE.targetCount}).` : ".");
+    } else {
+      STATE.answer =
+        `Stopped after ${STATE.maxIterations} iterations without reaching an answer. ` +
+        `Try a more specific task, or check the status log.`;
+    }
     log(STATE.answer, "warn");
   }
 
@@ -317,13 +430,23 @@ async function startTask({ prompt, serverUrl, localOnly }) {
   STATE.tabId = tab.id;
   STATE.targetCount = parseTargetCount(STATE.prompt);
   STATE.status = STATUS.PERCEIVING;
-  log(`task "${STATE.prompt}" on ${tab.url} (target=${STATE.targetCount}, localOnly=${STATE.localOnly})`);
+  log(`task "${STATE.prompt}" on ${tab.url} (target=${STATE.targetCount || "n/a"}, localOnly=${STATE.localOnly})`);
   await broadcast();
 
-  const ready = await ensureContentScript();
-  if (!ready) {
+  const restricted = /^(chrome|edge|about|chrome-extension|devtools|view-source):/i.test(tab.url || "");
+  if (restricted) {
     STATE.status = STATUS.ERROR;
-    STATE.error = "content script unavailable on this page (unsupported site?)";
+    STATE.error =
+      `This is a browser page (${(tab.url || "").split("/")[0]}). Open a normal website first ` +
+      `(the agent acts on the active tab and can't inject into ${tab.url?.split(":")[0]}: pages).`;
+    log(STATE.error, "error");
+    await broadcast();
+    return;
+  }
+
+  if (!(await ensureContentScript())) {
+    STATE.status = STATUS.ERROR;
+    STATE.error = "could not inject the content script on this page";
     await broadcast();
     return;
   }
