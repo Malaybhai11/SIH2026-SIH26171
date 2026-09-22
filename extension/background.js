@@ -1,14 +1,37 @@
 // Background service worker — the agent loop orchestrator + state machine.
 //
-//   IDLE -> PERCEIVING -> REDACTING -> REASONING -> ACTING -> (loop) -> DONE / ERROR
+//   IDLE -> PLANNING -> PERCEIVING -> REDACTING -> REASONING -> ACTING -> (loop) -> DONE / ERROR
+//                    \-> DELEGATING -> (2-5 sub-agent loops, each own window, run concurrently) -> SYNTHESIZING -> DONE
 //
-// Stateless server: the full task memory is passed on every /agent/step call.
-// State is mirrored to chrome.storage.session so a reopened popup can catch up.
+// Single subtask plans skip DELEGATING/SYNTHESIZING entirely and behave exactly like the
+// original single-tab agent. Stateless server: the full task memory is passed on every
+// /agent/step call. State is mirrored to chrome.storage.session so a reopened popup can catch up.
 
 import { MSG, STATUS, CONTRACT_VERSION, DEFAULTS, STATE_KEY } from "./lib/messages.js";
+import { getMemoryFacts, addHistoryEntry, rememberFact, addNote } from "./lib/memoryStore.js";
 
 let STATE = freshState();
 let RUNNING = false;
+
+// MV3 kills an idle service worker after ~30s with no extension-API activity — a
+// long multi-iteration/multi-window task can silently die mid-run (e.g. when the
+// browser window loses focus/is backgrounded long enough for Chrome to consider it
+// idle), leaving tabs it already opened stranded and the task stuck forever. A
+// periodic alarm forces a chrome.* call while a task is running so the worker stays
+// alive for the duration of the task instead of being torn down mid-loop.
+const KEEPALIVE_ALARM = "agent-keepalive";
+
+function startKeepAlive() {
+  chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 0.4 });
+}
+
+function stopKeepAlive() {
+  chrome.alarms.clear(KEEPALIVE_ALARM);
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === KEEPALIVE_ALARM) chrome.storage.session.get(STATE_KEY).catch(() => {});
+});
 
 function freshState() {
   return {
@@ -30,13 +53,29 @@ function freshState() {
     lastVisionMode: null,
     lastScreenState: null,
     cancelRequested: false,
+    pauseRequested: false,
+    pendingConfirmation: null,
     metrics: { iterations: [] },
+    plan: null,
+    subAgents: [],
+    memoryFacts: [],
   };
 }
 
+// chrome.storage.session has a real quota, and persist() writes the whole STATE
+// object on every broadcast (i.e. every iteration). sub.lastThumbnail is a base64
+// JPEG data URL — fine for a live in-memory popup message, but would bloat every
+// disk-backed write if persisted every iteration. Strip thumbnails from the
+// persisted copy; the live chrome.runtime.sendMessage broadcast below keeps the
+// full state (including thumbnails) since that's just an in-memory message to an
+// open popup, not disk-backed storage.
 async function persist() {
   try {
-    await chrome.storage.session.set({ [STATE_KEY]: STATE });
+    const forStorage = {
+      ...STATE,
+      subAgents: (STATE.subAgents || []).map((s) => ({ ...s, lastThumbnail: null })),
+    };
+    await chrome.storage.session.set({ [STATE_KEY]: forStorage });
   } catch (e) {
     /* session storage may be unavailable in some contexts */
   }
@@ -44,6 +83,16 @@ async function persist() {
 
 function log(msg, level = "info") {
   STATE.log.push({ t: Date.now(), level, msg });
+  if (STATE.log.length > 200) STATE.log.shift();
+}
+
+// Per-sub-agent logging: writes to the sub-agent's own log AND the combined
+// top-level log (prefixed with the sub-agent id when there's more than one).
+function subLog(sub, msg, level = "info") {
+  const t = Date.now();
+  sub.log.push({ t, level, msg });
+  if (sub.log.length > 200) sub.log.shift();
+  STATE.log.push({ t, level, msg: sub.logPrefix ? `${sub.logPrefix}${msg}` : msg });
   if (STATE.log.length > 200) STATE.log.shift();
 }
 
@@ -63,7 +112,197 @@ function parseTargetCount(prompt) {
   return m ? Math.min(parseInt(m[1], 10), 50) : 0; // 0 = not a collection task
 }
 
+function hostFromUrl(url) {
+  return (url || "").replace(/^https?:\/\//, "").split("/")[0] || "unknown";
+}
+
+// --- Image saving + report compilation (save_image / compile_report actions) ---
+// Both write real files via chrome.downloads — only available here (background),
+// not in the content script, which is why these actions dispatch to the content
+// script for resolution/perception first and do the actual download here.
+
+function sanitizeFilenamePart(s, maxLen = 40) {
+  const cleaned = String(s || "")
+    .replace(/[^a-zA-Z0-9-_ ]/g, "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .slice(0, maxLen);
+  return cleaned || "untitled";
+}
+
+function guessImageExt(url) {
+  const m = /\.(jpg|jpeg|png|gif|webp|svg)(?:[?#]|$)/i.exec(url || "");
+  return m ? m[1].toLowerCase() : "jpg";
+}
+
+// btoa() only handles Latin1 — this is the standard trick to base64-encode
+// arbitrary UTF-8 text (report content can include non-ASCII page text).
+function utf8ToBase64(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+
+function csvCell(v) {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function reportFolder(taskId) {
+  return `browser-agent-reports/${sanitizeFilenamePart(taskId, 12)}`;
+}
+
+async function saveImageDownload(sub, ctx, actionRes, caption) {
+  const ext = guessImageExt(actionRes.imageUrl);
+  const label = sanitizeFilenamePart(caption || actionRes.alt || "image");
+  const filename = `${reportFolder(ctx.taskId)}/images/${sub.id}_${sub.savedImages.length + 1}_${label}.${ext}`;
+  await chrome.downloads.download({ url: actionRes.imageUrl, filename, saveAs: false });
+  sub.savedImages.push({ t: Date.now(), filename, url: actionRes.imageUrl, caption: caption || "", alt: actionRes.alt || "" });
+  subLog(sub, `saved image: ${filename}`);
+}
+
+// Builds a CSV (whatever's been collected so far, Excel-openable) + a Markdown
+// report (the agent's own running notes + a list of saved images with captions)
+// and downloads both. Client-side only — never round-trips through the server.
+async function compileReport(sub, ctx, title) {
+  const folder = reportFolder(ctx.taskId);
+  const rows = [["#", "author", "text", "href", "timestamp"]];
+  sub.accumulatedData.forEach((it, i) => {
+    rows.push([i + 1, it.author || "", it.text || "", it.href || "", it.timestamp || ""]);
+  });
+  const csv = rows.map((r) => r.map(csvCell).join(",")).join("\n");
+
+  const mdLines = [`# ${title || "Task report"}`, "", `Goal: ${sub.goal}`, ""];
+  if (sub.notes.length) {
+    mdLines.push("## Notes", "");
+    for (const n of sub.notes) mdLines.push(`- ${n.label ? `**${n.label}:** ` : ""}${n.text}`);
+    mdLines.push("");
+  }
+  if (sub.savedImages.length) {
+    mdLines.push("## Saved images", "");
+    for (const img of sub.savedImages) mdLines.push(`- \`${img.filename}\`${img.caption ? ` — ${img.caption}` : ""}`);
+    mdLines.push("");
+  }
+  if (sub.accumulatedData.length) {
+    mdLines.push(`## Collected items (${sub.accumulatedData.length}) — see report.csv for full data`, "");
+  }
+  const md = mdLines.join("\n");
+
+  const files = [
+    { filename: `${folder}/report.csv`, content: csv, mime: "text/csv" },
+    { filename: `${folder}/report.md`, content: md, mime: "text/markdown" },
+  ];
+  const saved = [];
+  for (const f of files) {
+    const url = `data:${f.mime};charset=utf-8;base64,${utf8ToBase64(f.content)}`;
+    await chrome.downloads.download({ url, filename: f.filename, saveAs: false });
+    saved.push({ t: Date.now(), filename: f.filename });
+  }
+  return saved;
+}
+
+// Well-known site name -> canonical URL. The planner/step LLM is supposed to
+// navigate first when a task names a specific site ("go to chatgpt and..."), but in
+// practice that's not reliable — it sometimes tries to act on the CURRENT page as
+// if it were already the named site. This is a deterministic fallback so common
+// "go to X" tasks don't depend on the model getting that right.
+const KNOWN_SITES = {
+  chatgpt: "https://chatgpt.com",
+  "chat gpt": "https://chatgpt.com",
+  google: "https://www.google.com",
+  youtube: "https://www.youtube.com",
+  gmail: "https://mail.google.com",
+  github: "https://github.com",
+  amazon: "https://www.amazon.com",
+  wikipedia: "https://en.wikipedia.org",
+  reddit: "https://www.reddit.com",
+  twitter: "https://x.com",
+  "x.com": "https://x.com",
+  linkedin: "https://www.linkedin.com",
+  facebook: "https://www.facebook.com",
+  instagram: "https://www.instagram.com",
+  "hacker news": "https://news.ycombinator.com",
+  hackernews: "https://news.ycombinator.com",
+  "google maps": "https://maps.google.com",
+};
+
+function resolveKnownSiteUrl(text) {
+  const t = (text || "").toLowerCase();
+  if (/https?:\/\//.test(t)) return null; // an explicit URL is already given
+  const m = t.match(/\b(?:go to|open|visit|navigate to)\s+([a-z][a-z0-9.\s]{1,20}?)(?:\s+(?:and|,|to|then)\b|[.,!?]|$)/i);
+  const named = (m ? m[1] : "").trim();
+  if (named && KNOWN_SITES[named]) return KNOWN_SITES[named];
+  for (const [alias, url] of Object.entries(KNOWN_SITES)) {
+    if (new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(t)) return url;
+  }
+  return null;
+}
+
+// Strip fragment + trailing slash so "open_tab" can recognize a page it already
+// opened even if the LLM re-issues a slightly different-looking URL for it.
+function normalizeUrl(url) {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    return u.toString().replace(/\/$/, "");
+  } catch (e) {
+    return (url || "").split("#")[0].replace(/\/$/, "");
+  }
+}
+
 const NAV_ACTIONS = new Set(["navigate", "open_tab", "switch_tab", "back"]);
+// Actions where repeating the exact same target with no new page/state is a strong
+// loop signal (unlike scroll/wait/extract, which are *expected* to repeat).
+const LOOP_GUARD_ACTIONS = new Set(["open_tab", "navigate", "click", "back"]);
+// Field-targeting actions where an immediate retry of the exact same (action,
+// target) pair after a failure is never going to succeed.
+const RETRY_GUARDED_ACTIONS = new Set(["type", "select", "check", "press_key"]);
+
+// Clicks whose target looks irreversible/consequential (money, deletion,
+// messaging someone, unsubscribing) pause the loop for an explicit user
+// confirmation instead of dispatching automatically. Only "click" is gated —
+// typing/scrolling/navigating aren't themselves irreversible. These words
+// essentially never appear innocuously in unrelated UI text, so they're checked
+// against the full node text regardless of length.
+const HARD_RISKY_KEYWORDS =
+  /\b(buy|purchase|checkout|check out|place order|pay|payment|confirm order|submit payment|delete|remove|unsubscribe|cancel subscription|send (message|email|dm)|transfer funds|wire transfer)\b/i;
+// Social-media actions are also worth confirming (posting/following publicly is
+// hard to undo), but these are common English words that show up constantly in
+// ordinary prose ("customers also like this", "follow these steps") — only treat
+// them as risky when the target is a short, button-like label (a real UI control),
+// not a sentence that happens to contain the word.
+const SOFT_RISKY_KEYWORDS = /\b(follow|unfollow|retweet|repost|like|favorite|tweet|post tweet)\b/i;
+const SOFT_RISKY_LABEL_MAX_LEN = 24;
+
+function isRiskyAction(a, snapshot) {
+  if (a.type !== "click") return false;
+  const node = (snapshot.sanitizedDom || []).find((n) => n.id === a.targetId);
+  const text = (node?.text || "").trim();
+  const label = `${text} ${node?.role || ""}`;
+  if (HARD_RISKY_KEYWORDS.test(label)) return true;
+  const isButtonLike = node?.role === "button" || node?.role === "link";
+  return isButtonLike && text.length > 0 && text.length <= SOFT_RISKY_LABEL_MAX_LEN && SOFT_RISKY_KEYWORDS.test(label);
+}
+
+// This extension ships no icon asset (checked manifest.json + extension/ dir —
+// none present), but chrome.notifications.create's "basic" type requires an
+// iconUrl. Rather than block completion notifications on producing a real asset,
+// fall back to a tiny inline 1x1 PNG data URL.
+const FALLBACK_NOTIFICATION_ICON =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUAAscqmT4AAAAASUVORK5CYII=";
+
+// Best-effort completion notification — must never affect the task result.
+function notifyTaskComplete(status, summary) {
+  try {
+    const isError = status === STATUS.ERROR;
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: FALLBACK_NOTIFICATION_ICON,
+      title: "Browser Agent",
+      message: String(summary || (isError ? "Task failed." : "Task complete.")).slice(0, 120),
+    });
+  } catch (e) {
+    /* notifications are best-effort — never let this affect the task result */
+  }
+}
 
 function waitForTabLoad(tabId, timeoutMs = 12000) {
   return new Promise((resolve) => {
@@ -82,12 +321,12 @@ function waitForTabLoad(tabId, timeoutMs = 12000) {
   });
 }
 
-async function getOpenTabs() {
+async function getOpenTabs(sub) {
   try {
-    const tabs = await chrome.tabs.query({ currentWindow: true });
+    const tabs = await chrome.tabs.query({ windowId: sub.windowId });
     return tabs.map((t, i) => ({
       index: i,
-      active: t.id === STATE.tabId,
+      active: t.id === sub.tabId,
       title: (t.title || "").slice(0, 80),
       url: t.url || "",
     }));
@@ -96,55 +335,74 @@ async function getOpenTabs() {
   }
 }
 
-async function getCurrentUrl() {
+async function getCurrentUrl(tabId) {
   try {
-    return (await chrome.tabs.get(STATE.tabId))?.url ?? null;
+    return (await chrome.tabs.get(tabId))?.url ?? null;
   } catch (e) {
     return null;
   }
 }
 
 // Navigation actions run here (need chrome.tabs); DOM actions go to the content script.
-async function navAction(action) {
+async function navAction(sub, action) {
   try {
     if (action.type === "navigate") {
-      await chrome.tabs.update(STATE.tabId, { url: action.url, active: true });
-      await waitForTabLoad(STATE.tabId);
+      const currentUrl = await getCurrentUrl(sub.tabId);
+      if (currentUrl && normalizeUrl(currentUrl) === normalizeUrl(action.url)) {
+        subLog(sub, `already on ${action.url} — skipping redundant reload`, "warn");
+        return {
+          ok: false,
+          error: `Already on ${action.url}. Do not navigate here again — interact with the page elements directly (click buttons/links, fill forms, or record a note).`,
+        };
+      }
+      await chrome.tabs.update(sub.tabId, { url: action.url, active: true });
+      await waitForTabLoad(sub.tabId);
     } else if (action.type === "open_tab") {
-      const t = await chrome.tabs.create({ url: action.url, active: true });
-      STATE.tabId = t.id;
-      await waitForTabLoad(STATE.tabId);
+      // Reuse an already-open tab with the same URL instead of piling up duplicates —
+      // the LLM sometimes re-issues open_tab for a page it already opened.
+      const norm = normalizeUrl(action.url);
+      const existing = (await chrome.tabs.query({ windowId: sub.windowId })).find(
+        (t) => t.url && normalizeUrl(t.url) === norm,
+      );
+      if (existing) {
+        await chrome.tabs.update(existing.id, { active: true });
+        sub.tabId = existing.id;
+      } else {
+        const t = await chrome.tabs.create({ url: action.url, active: true, windowId: sub.windowId });
+        sub.tabId = t.id;
+        await waitForTabLoad(sub.tabId);
+      }
     } else if (action.type === "switch_tab") {
-      const tabs = await chrome.tabs.query({ currentWindow: true });
+      const tabs = await chrome.tabs.query({ windowId: sub.windowId });
       const idx = Math.max(0, Math.min(tabs.length - 1, action.index ?? 0));
       if (tabs[idx]) {
         await chrome.tabs.update(tabs[idx].id, { active: true });
-        STATE.tabId = tabs[idx].id;
+        sub.tabId = tabs[idx].id;
       }
     } else if (action.type === "back") {
-      await chrome.tabs.goBack(STATE.tabId);
-      await waitForTabLoad(STATE.tabId);
+      await chrome.tabs.goBack(sub.tabId);
+      await waitForTabLoad(sub.tabId);
     }
     // SPAs keep rendering well after `status: complete` — give them longer.
     let spaMs = DEFAULTS.settleMs;
     try {
-      const h = new URL(action.url || (await getCurrentUrl()) || "https://x").hostname;
+      const h = new URL(action.url || (await getCurrentUrl(sub.tabId)) || "https://x").hostname;
       if (/(x|twitter|reddit|instagram|linkedin|facebook)\.com$/i.test(h)) spaMs = 2200;
     } catch (e) {
       /* keep default */
     }
     await new Promise((r) => setTimeout(r, spaMs));
-    const ready = await ensureContentScript();
+    const ready = await ensureContentScript(sub.tabId);
     return ready ? { ok: true } : { ok: false, error: "content script unavailable after navigation" };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
 }
 
-async function dispatchAction(action) {
-  if (NAV_ACTIONS.has(action.type)) return navAction(action);
+async function dispatchAction(sub, action) {
+  if (NAV_ACTIONS.has(action.type)) return navAction(sub, action);
   return withTimeout(
-    chrome.tabs.sendMessage(STATE.tabId, { type: MSG.EXECUTE_ACTION, action }),
+    chrome.tabs.sendMessage(sub.tabId, { type: MSG.EXECUTE_ACTION, action }),
     DEFAULTS.iterationTimeoutMs,
     "content-action",
   );
@@ -154,36 +412,52 @@ function dedupeKey(item) {
   return item.href || item.url || item.text || JSON.stringify(item);
 }
 
-function mergeAccumulated(items = []) {
-  const seen = new Set(STATE.accumulatedData.map(dedupeKey));
+function mergeAccumulated(sub, items = []) {
+  const seen = new Set(sub.accumulatedData.map(dedupeKey));
   for (const it of items) {
     const k = dedupeKey(it);
     if (!seen.has(k)) {
       seen.add(k);
-      STATE.accumulatedData.push(it);
+      sub.accumulatedData.push(it);
     }
   }
 }
 
-async function captureScreenshot() {
+// Combine every sub-agent's collected items into one deduped list (used for the
+// top-level STATE.accumulatedData mirror and the history entry's itemCount).
+function mergeAllSubData(subAgents) {
+  const out = [];
+  const seen = new Set();
+  for (const sub of subAgents) {
+    for (const it of sub.accumulatedData || []) {
+      const k = dedupeKey(it);
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push(it);
+      }
+    }
+  }
+  return out;
+}
+
+async function captureScreenshot(sub) {
   try {
-    const tab = await chrome.tabs.get(STATE.tabId);
-    return await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+    return await chrome.tabs.captureVisibleTab(sub.windowId, { format: "png" });
   } catch (e) {
-    log(`screenshot unavailable (${e.message}); vision falls back to DOM heuristics`, "warn");
+    subLog(sub, `screenshot unavailable (${e.message}); vision falls back to DOM heuristics`, "warn");
     return null;
   }
 }
 
-async function ensureContentScript() {
+async function ensureContentScript(tabId) {
   try {
-    const res = await chrome.tabs.sendMessage(STATE.tabId, { type: MSG.PING });
+    const res = await chrome.tabs.sendMessage(tabId, { type: MSG.PING });
     if (res?.ok) return true;
   } catch (e) {
     /* not injected yet */
   }
   try {
-    await chrome.scripting.executeScript({ target: { tabId: STATE.tabId }, files: ["content.js"] });
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
     await new Promise((r) => setTimeout(r, 300));
     return true;
   } catch (e) {
@@ -199,44 +473,51 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
-async function buildRequest(snapshot) {
+async function buildRequest(sub, ctx, snapshot) {
   return {
     contractVersion: CONTRACT_VERSION,
-    taskId: STATE.taskId,
-    prompt: STATE.prompt,
-    iteration: STATE.iteration,
-    maxIterations: STATE.maxIterations,
+    taskId: ctx.taskId,
+    prompt: sub.goal,
+    iteration: sub.iteration,
+    maxIterations: sub.maxIterations,
     screenState: snapshot.screenState ?? "unknown",
     screenStateConfidence: snapshot.screenStateConfidence ?? 0.5,
     siteConfigId: snapshot.meta?.siteConfigId ?? "generic",
-    currentUrl: await getCurrentUrl(),
-    openTabs: await getOpenTabs(),
+    currentUrl: await getCurrentUrl(sub.tabId),
+    openTabs: await getOpenTabs(sub),
     pageMeta: {
       nodeCount: snapshot.sanitizedDom?.length ?? 0,
       loginWall: !!snapshot.meta?.loginWall,
       scrollY: snapshot.meta?.scrollY ?? 0,
       scrollMax: snapshot.meta?.scrollMax ?? 0,
       title: snapshot.meta?.title ?? "",
+      toasts: snapshot.meta?.toasts ?? [],
     },
     sendScreenshot: !!snapshot.sendScreenshot,
     redactedScreenshot: snapshot.sendScreenshot ? snapshot.redactedScreenshot ?? null : null,
     sanitizedDom: snapshot.sanitizedDom ?? [],
-    accumulatedData: STATE.accumulatedData,
+    accumulatedData: sub.accumulatedData,
+    // Cross-session facts the user has told the agent to remember. Harmless extra
+    // field if the server prompt doesn't read it yet.
+    memoryFacts: ctx.memoryFacts ?? [],
+    // Outcome of the action taken last turn — lets the model notice a failed guess
+    // (wrong element, stale id, non-typeable field) instead of repeating it blind.
+    lastActionResult: sub.lastActionResult ?? null,
   };
 }
 
 // --- Local-only fallback stepper (server unreachable / "local-only" toggle) ---
-function mockStep(reqBody, snapshot) {
+function mockStep(sub, reqBody, snapshot) {
   const items = (snapshot.sanitizedDom || [])
     .filter((n) => n.role === "article" || n.href)
     .map((n) => ({ author: n.author, text: n.text, timestamp: n.timestamp, href: n.href }));
 
-  if (!STATE.targetCount) {
+  if (!sub.targetCount) {
     // Not a collection task — the local stepper can't browse/reason.
     return {
       status: "done",
       answer:
-        `[local-only] "${STATE.prompt}" needs a real LLM provider to answer. ` +
+        `[local-only] "${sub.goal}" needs a real LLM provider to answer. ` +
         `Visible items on the page:\n` +
         (snapshot.sanitizedDom || [])
           .map((n) => (n.text || "").trim())
@@ -248,14 +529,14 @@ function mockStep(reqBody, snapshot) {
     };
   }
 
-  const projected = new Set([...STATE.accumulatedData, ...items].map(dedupeKey)).size;
-  if (projected >= STATE.targetCount || STATE.iteration >= STATE.maxIterations) {
+  const projected = new Set([...sub.accumulatedData, ...items].map(dedupeKey)).size;
+  if (projected >= sub.targetCount || sub.iteration >= sub.maxIterations) {
     return {
       status: "done",
       answer:
-        `[local-only mode] Collected ${projected} item(s) for: "${STATE.prompt}". ` +
+        `[local-only mode] Collected ${projected} item(s) for: "${sub.goal}". ` +
         `Server LLM was not used, so no natural-language summary is available.`,
-      extractedItems: [...STATE.accumulatedData, ...items].slice(0, STATE.targetCount),
+      extractedItems: [...sub.accumulatedData, ...items].slice(0, sub.targetCount),
       reasoning: "local mock stepper",
     };
   }
@@ -263,15 +544,15 @@ function mockStep(reqBody, snapshot) {
     status: "action",
     action: { type: "scroll", amount: DEFAULTS.scrollAmount },
     extracted: items,
-    reasoning: `local mock: ${projected}/${STATE.targetCount} collected, scrolling`,
+    reasoning: `local mock: ${projected}/${sub.targetCount} collected, scrolling`,
   };
 }
 
-async function callServer(reqBody, snapshot) {
-  if (STATE.localOnly) return mockStep(reqBody, snapshot);
+async function callServer(sub, ctx, reqBody, snapshot) {
+  if (ctx.localOnly) return mockStep(sub, reqBody, snapshot);
   try {
     const res = await withTimeout(
-      fetch(STATE.serverUrl, {
+      fetch(ctx.serverUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(reqBody),
@@ -285,110 +566,210 @@ async function callServer(reqBody, snapshot) {
     }
     return await res.json();
   } catch (e) {
-    log(`server call failed (${e.message}); switching to local-only fallback`, "warn");
+    subLog(sub, `server call failed (${e.message}); switching to local-only fallback`, "warn");
+    ctx.localOnly = true;
     STATE.localOnly = true;
-    return mockStep(reqBody, snapshot);
+    return mockStep(sub, reqBody, snapshot);
   }
 }
 
-async function runLoop() {
-  RUNNING = true;
-  STATE.iteration = 0;
+// Copy a sub-agent's live fields onto the top-level STATE so the existing popup UI
+// (which reads STATE.iteration/accumulatedData/answer/etc directly) keeps working
+// unchanged for the single-subtask path.
+function mirrorSubToState(sub) {
+  STATE.status = sub.status;
+  STATE.iteration = sub.iteration;
+  STATE.maxIterations = sub.maxIterations;
+  STATE.accumulatedData = sub.accumulatedData;
+  STATE.answer = sub.answer;
+  STATE.error = sub.error;
+  STATE.lastRedactionSummary = sub.lastRedactionSummary;
+  STATE.lastRedactionLog = sub.lastRedactionLog;
+  STATE.lastVisionMode = sub.lastVisionMode;
+  STATE.lastScreenState = sub.lastScreenState;
+  STATE.metrics = sub.metrics;
+  STATE.tabId = sub.tabId;
+}
+
+// Idles a sub-agent while paused (either user-requested via MSG.PAUSE_TASK, or an
+// automatic pause on a detected CAPTCHA wall) without exiting runSubLoop's while
+// loop — a paused loop should idle, not be treated as finished. Callers are
+// responsible for restoring sub.status once this returns (it only sets PAUSED).
+async function waitWhilePaused(sub, ctx) {
+  if (!ctx.isPaused()) return;
+  sub.status = STATUS.PAUSED;
+  await ctx.onUpdate();
+  while (ctx.isPaused() && !ctx.isCancelled()) {
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+// The PERCEIVE -> REDACT -> REASON -> ACT loop, parameterized over a single sub-agent's
+// state instead of the module-level STATE. Runs to DONE/ERROR and never throws — callers
+// (single-agent or Promise.allSettled in multi-agent mode) can await it safely.
+async function runSubLoop(sub, ctx) {
+  sub.targetCount = parseTargetCount(sub.goal);
   let emptyStreak = 0;
+  let lastActionSig = null;
+  let repeatStreak = 0;
+  // Tracks visits to exact URLs to detect tight navigation loops.
+  const urlVisitCounts = {};
+  const hostVisitCounts = {};
+  const HOST_REVISIT_LIMIT = 25;
+  // The actual "is this task going anywhere" signal: how many iterations has it
+  // been since anything was actually produced (a note, a collected item, a saved
+  // image)? A task can visit the same host or different hosts any number of times
+  // and that's fine as long as it keeps producing output; if it stops producing
+  // ANYTHING for a long stretch, it's stuck regardless of what it's clicking on.
+  let noProgressStreak = 0;
+  let lastProgressMark = sub.accumulatedData.length + sub.notes.length + sub.savedImages.length;
+  const NO_PROGRESS_LIMIT = 20;
 
-  while (STATE.iteration < STATE.maxIterations && !STATE.cancelRequested) {
-    STATE.iteration += 1;
+  while (sub.iteration < sub.maxIterations && !ctx.isCancelled()) {
+    sub.cancelRequested = ctx.isCancelled();
+    sub.iteration += 1;
     const iterT0 = performance.now();
-    log(`--- iteration ${STATE.iteration}/${STATE.maxIterations} ---`);
+    subLog(sub, `--- iteration ${sub.iteration}/${sub.maxIterations} ---`);
 
-    // PERCEIVING + REDACTING (redaction runs inside the content script)
-    STATE.status = STATUS.PERCEIVING;
-    await broadcast();
+    // A pause (user-requested or auto-triggered) idles here rather than exiting the
+    // loop; sub.status is restored below by the unconditional PERCEIVING assignment.
+    await waitWhilePaused(sub, ctx);
+    if (ctx.isCancelled()) break;
 
-    // Re-inject after navigations / SPA route changes.
-    if (!(await ensureContentScript())) {
-      STATE.status = STATUS.ERROR;
-      STATE.error = "content script unavailable on this page";
-      log(STATE.error, "error");
+    // Stall check: did the PREVIOUS iteration actually produce anything (a note,
+    // a collected item, a saved image)? If nothing has moved for a long stretch,
+    // the task is stuck regardless of how much clicking/navigating/waiting it's
+    // doing — stop instead of quietly burning the rest of a large iteration budget.
+    const progressMark = sub.accumulatedData.length + sub.notes.length + sub.savedImages.length;
+    noProgressStreak = progressMark > lastProgressMark ? 0 : noProgressStreak + 1;
+    lastProgressMark = progressMark;
+    if (noProgressStreak >= NO_PROGRESS_LIMIT) {
+      sub.status = STATUS.DONE;
+      sub.answer =
+        `Stopped early: no new notes/items/images in the last ${NO_PROGRESS_LIMIT} iterations — ` +
+        `stuck without making progress. ` +
+        (sub.accumulatedData.length || sub.notes.length || sub.savedImages.length
+          ? `Collected ${sub.accumulatedData.length} item(s), ${sub.notes.length} note(s), ${sub.savedImages.length} image(s) so far.`
+          : `Nothing was collected — try a more specific task, or check the status log.`);
+      subLog(sub, sub.answer, "warn");
       break;
     }
-    const screenshot = await captureScreenshot();
+
+    // PERCEIVING + REDACTING (redaction runs inside the content script)
+    sub.status = STATUS.PERCEIVING;
+    await ctx.onUpdate();
+
+    // Re-inject after navigations / SPA route changes.
+    if (!(await ensureContentScript(sub.tabId))) {
+      sub.status = STATUS.ERROR;
+      sub.error = "content script unavailable on this page";
+      subLog(sub, sub.error, "error");
+      break;
+    }
+    const screenshot = await captureScreenshot(sub);
 
     let snapshot;
     try {
       snapshot = await withTimeout(
-        chrome.tabs.sendMessage(STATE.tabId, {
+        chrome.tabs.sendMessage(sub.tabId, {
           type: MSG.EXTRACT_SNAPSHOT,
           screenshot,
-          targetCount: STATE.targetCount,
+          targetCount: sub.targetCount,
           collect: false,
         }),
         DEFAULTS.iterationTimeoutMs,
         "content-extract",
       );
     } catch (e) {
-      STATE.status = STATUS.ERROR;
-      STATE.error = `perception failed: ${e.message}`;
-      log(STATE.error, "error");
+      sub.status = STATUS.ERROR;
+      sub.error = `perception failed: ${e.message}`;
+      subLog(sub, sub.error, "error");
       break;
     }
     if (!snapshot?.ok) {
-      STATE.status = STATUS.ERROR;
-      STATE.error = `perception failed: ${snapshot?.error ?? "unknown"}`;
-      log(STATE.error, "error");
+      sub.status = STATUS.ERROR;
+      sub.error = `perception failed: ${snapshot?.error ?? "unknown"}`;
+      subLog(sub, sub.error, "error");
       break;
     }
 
     // Login wall / persistently empty page → stop with a useful message instead
     // of burning every iteration scrolling nothing.
     const nodeCount = snapshot.sanitizedDom?.length ?? 0;
-    const host = (await getCurrentUrl())?.replace(/^https?:\/\//, "").split("/")[0] || "the page";
+    const host = hostFromUrl(await getCurrentUrl(sub.tabId)) || "the page";
+    sub.lastThumbnail = snapshot.thumbnail ?? null;
+    // Clear any stale captcha message from a previous iteration now that we have a
+    // fresh snapshot — otherwise it lingers in sub.error (and STATE.error) forever
+    // after the captcha is solved, wrongly showing up as the reason for any LATER
+    // pause (e.g. a plain user-requested take-over) even once wholly unrelated.
+    sub.error = null;
+
+    // CAPTCHA/bot-check wall: checked BEFORE loginWall/empty-page, since a captcha
+    // page can also look "empty" to the DOM extractor. Unlike those, this doesn't
+    // end the sub-agent — it auto-pauses (reusing the same STATE.pauseRequested
+    // flag MSG.RESUME_TASK clears) so the user can solve it manually, then resume.
+    if (snapshot.meta?.captchaWall) {
+      sub.error =
+        "This page shows a CAPTCHA/bot-check challenge — solve it manually in the browser, then click Resume.";
+      subLog(sub, sub.error, "warn");
+      STATE.pauseRequested = true;
+      log("captcha wall detected — auto-pausing until user resumes", "warn");
+      await waitWhilePaused(sub, ctx);
+      if (ctx.isCancelled()) break;
+      continue; // re-perceive fresh once resumed, rather than using this stale snapshot
+    }
     if (snapshot.meta?.loginWall) {
-      STATE.status = STATUS.DONE;
-      STATE.answer =
+      sub.status = STATUS.DONE;
+      sub.answer =
         `${host} is showing a sign-in wall, so there's no content to read. ` +
         `Log in to that site in this browser, then re-run the task.`;
-      log(STATE.answer, "warn");
+      subLog(sub, sub.answer, "warn");
       break;
     }
     if (nodeCount === 0) {
       emptyStreak += 1;
       if (emptyStreak >= 3) {
-        STATE.status = STATUS.DONE;
-        STATE.answer =
+        sub.status = STATUS.DONE;
+        sub.answer =
           `${host} returned no readable content after ${emptyStreak} attempts — the site ` +
           `may require login, block automation, or still be loading. Stopping.`;
-        log(STATE.answer, "warn");
+        subLog(sub, sub.answer, "warn");
         break;
       }
-      log(`empty snapshot (${emptyStreak}/3) — retrying`, "warn");
+      subLog(sub, `empty snapshot (${emptyStreak}/3) — retrying`, "warn");
     } else {
       emptyStreak = 0;
     }
 
-    STATE.status = STATUS.REDACTING;
-    STATE.lastRedactionSummary = snapshot.redactionSummary;
-    STATE.lastRedactionLog = snapshot.redactionLog ?? [];
-    STATE.lastVisionMode = snapshot.visionMode;
-    STATE.lastScreenState = snapshot.screenState;
-    log(
+    sub.status = STATUS.REDACTING;
+    sub.lastRedactionSummary = snapshot.redactionSummary;
+    sub.lastRedactionLog = snapshot.redactionLog ?? [];
+    sub.lastVisionMode = snapshot.visionMode;
+    sub.lastScreenState = snapshot.screenState;
+    subLog(
+      sub,
       `redacted ${snapshot.redactionSummary?.total ?? 0} span(s) across ` +
         `${snapshot.redactionSummary?.elements ?? 0} element(s); vision=${snapshot.visionMode}; ` +
         `screen=${snapshot.screenState} (${snapshot.screenStateConfidence}); ` +
         `visual boxes painted=${snapshot.visualBoxesPainted}`,
     );
-    await broadcast();
+    await ctx.onUpdate();
 
     // REASONING
-    STATE.status = STATUS.REASONING;
-    await broadcast();
-    const reqBody = await buildRequest(snapshot);
+    sub.status = STATUS.REASONING;
+    await ctx.onUpdate();
+    const reqBody = await buildRequest(sub, ctx, snapshot);
     const serverT0 = performance.now();
-    const resp = await callServer(reqBody, snapshot);
+    const resp = await callServer(sub, ctx, reqBody, snapshot);
     const serverMs = Math.round(performance.now() - serverT0);
 
-    STATE.metrics.iterations.push({
-      iteration: STATE.iteration,
+    if (typeof resp.reasoning === "string" && resp.reasoning.trim()) {
+      sub.narration.push({ t: Date.now(), text: resp.reasoning });
+      if (sub.narration.length > 30) sub.narration.shift();
+    }
+
+    sub.metrics.iterations.push({
+      iteration: sub.iteration,
       perceiveMs: snapshot.timings?.perceiveMs ?? null,
       redactMs: snapshot.timings?.redactMs ?? null,
       visionTotalMs: snapshot.timings?.visionTotalMs ?? null,
@@ -399,63 +780,571 @@ async function runLoop() {
     });
 
     if (resp.status === "error") {
-      STATE.status = STATUS.ERROR;
-      STATE.error = `server: ${resp.code} — ${resp.message}`;
-      log(STATE.error, "error");
+      sub.status = STATUS.ERROR;
+      sub.error = `server: ${resp.code} — ${resp.message}`;
+      subLog(sub, sub.error, "error");
       break;
     }
 
     if (resp.status === "done") {
-      mergeAccumulated(resp.extractedItems ?? []);
-      STATE.answer = resp.answer ?? "(no answer text)";
-      STATE.status = STATUS.DONE;
-      log(`done: ${resp.reasoning ?? ""}`);
+      mergeAccumulated(sub, resp.extractedItems ?? []);
+      sub.answer = resp.answer ?? "(no answer text)";
+      sub.status = STATUS.DONE;
+      subLog(sub, `done: ${resp.reasoning ?? ""}`);
       break;
     }
 
     // status === "action"
-    mergeAccumulated(resp.extracted ?? []);
+    mergeAccumulated(sub, resp.extracted ?? []);
     const a = resp.action || {};
+
+    // Memory writes are intercepted here — never dispatched to the content script.
+    if (a.type === "remember") {
+      try {
+        await rememberFact(a.targetId, a.text, "agent");
+        subLog(sub, `remembered "${a.targetId}" = "${String(a.text ?? "").slice(0, 80)}"`);
+      } catch (e) {
+        subLog(sub, `remember failed: ${e.message}`, "warn");
+      }
+      sub.status = STATUS.ACTING;
+      await ctx.onUpdate();
+      continue; // not a page action — keep looping without touching the tab
+    }
+
+    // Notes are intercepted the same way — never dispatched to the content script.
+    // Also pushed onto sub.notes so the popup can show them immediately without a
+    // storage round-trip.
+    if (a.type === "note") {
+      try {
+        await addNote(ctx.taskId, a.text, "agent");
+        sub.notes.push({ t: Date.now(), text: a.text, label: a.targetId ?? null });
+        subLog(sub, `note added${a.targetId ? ` [${a.targetId}]` : ""}: "${String(a.text ?? "").slice(0, 80)}"`);
+      } catch (e) {
+        subLog(sub, `note failed: ${e.message}`, "warn");
+      }
+      sub.status = STATUS.ACTING;
+      await ctx.onUpdate();
+      continue; // not a page action — keep looping without touching the tab
+    }
+
+    // Report compilation is also client-side only — never touches the page.
+    if (a.type === "compile_report") {
+      try {
+        const files = await compileReport(sub, ctx, a.text || "");
+        sub.reportFiles.push(...files);
+        subLog(sub, `compiled report: ${files.map((f) => f.filename).join(", ")}`);
+      } catch (e) {
+        subLog(sub, `compile_report failed: ${e.message}`, "warn");
+      }
+      sub.status = STATUS.ACTING;
+      await ctx.onUpdate();
+      continue; // not a page action — keep looping without touching the tab
+    }
+
+    // Loop guard: the same open_tab/navigate/click/back target twice in a row with
+    // no new data means the agent is stuck (e.g. re-opening a page it already has
+    // open) rather than making progress — stop instead of repeating it indefinitely.
+    if (LOOP_GUARD_ACTIONS.has(a.type)) {
+      const sig = `${a.type}:${normalizeUrl(a.url || "")}:${a.targetId || ""}`;
+      repeatStreak = sig === lastActionSig ? repeatStreak + 1 : 0;
+      lastActionSig = sig;
+      if (repeatStreak >= 2) {
+        sub.status = STATUS.DONE;
+        sub.answer = sub.accumulatedData.length
+          ? `Stopped early: repeated the same "${a.type}" action ${repeatStreak + 1}x without new progress. ` +
+            `Collected ${sub.accumulatedData.length} item(s) so far.`
+          : `Stopped early: repeated the same "${a.type}" action ${repeatStreak + 1}x without making progress.`;
+        subLog(sub, sub.answer, "warn");
+        break;
+      }
+    } else {
+      lastActionSig = null;
+      repeatStreak = 0;
+    }
+
+    // Slower thrash guard: the same host opened/navigated-to several times across
+    // the whole run (not necessarily consecutively) without finishing means the
+    // agent is bouncing between sites rather than converging — e.g. re-opening a
+    // mail compose window over and over instead of continuing to fill it in.
+    if ((a.type === "open_tab" || a.type === "navigate") && a.url) {
+      const norm = normalizeUrl(a.url);
+      urlVisitCounts[norm] = (urlVisitCounts[norm] || 0) + 1;
+      if (urlVisitCounts[norm] > 4) {
+        sub.status = STATUS.DONE;
+        sub.answer = sub.accumulatedData.length || sub.notes.length
+          ? `Stopped early: kept re-opening ${norm} (${urlVisitCounts[norm]}x) without finishing the task. ` +
+            `Collected ${sub.accumulatedData.length} item(s), ${sub.notes.length} note(s) so far.`
+          : `Stopped early: kept re-opening ${norm} (${urlVisitCounts[norm]}x) without finishing the task.`;
+        subLog(sub, sub.answer, "warn");
+        break;
+      }
+
+      let host = "";
+      try {
+        host = new URL(a.url).hostname;
+      } catch (e) {
+        /* leave host empty — can't track it */
+      }
+      const isLocal = host === "localhost" || host === "127.0.0.1" || host.endsWith(".local");
+      if (host && !isLocal) {
+        hostVisitCounts[host] = (hostVisitCounts[host] || 0) + 1;
+        if (hostVisitCounts[host] > HOST_REVISIT_LIMIT) {
+          sub.status = STATUS.DONE;
+          sub.answer = sub.accumulatedData.length || sub.notes.length
+            ? `Stopped early: kept re-opening ${host} (${hostVisitCounts[host]}x) without finishing the task. ` +
+              `Collected ${sub.accumulatedData.length} item(s), ${sub.notes.length} note(s) so far.`
+            : `Stopped early: kept re-opening ${host} (${hostVisitCounts[host]}x) without finishing the task.`;
+          subLog(sub, sub.answer, "warn");
+          break;
+        }
+      }
+    }
+
+    // A field-targeting action (type/select/check/press_key) that just failed on
+    // THIS exact target will fail identically again — the failure is structural
+    // (wrong element type, stale id), not transient — so don't spend the rest of
+    // the iteration budget retrying it blind.
+    if (
+      RETRY_GUARDED_ACTIONS.has(a.type) &&
+      sub.lastActionResult?.ok === false &&
+      sub.lastActionResult.type === a.type &&
+      sub.lastActionResult.targetId === a.targetId
+    ) {
+      sub.status = STATUS.DONE;
+      sub.answer = sub.accumulatedData.length
+        ? `Stopped early: retried "${a.type}" on ${a.targetId} right after it failed ` +
+          `(${sub.lastActionResult.error}). Collected ${sub.accumulatedData.length} item(s) so far.`
+        : `Stopped early: retried "${a.type}" on ${a.targetId} right after it failed (${sub.lastActionResult.error}).`;
+      subLog(sub, sub.answer, "warn");
+      break;
+    }
+
+    // Risky-action confirmation gate: pause and wait for an explicit user decision
+    // before dispatching a click on something that looks irreversible/consequential.
+    // STATE.pendingConfirmation is a single global slot — if another sub-agent
+    // already claimed it, wait for it to clear before claiming it for ourselves so
+    // two sub-agents never stomp each other.
+    if (isRiskyAction(a, snapshot)) {
+      while (STATE.pendingConfirmation && !ctx.isCancelled()) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      if (ctx.isCancelled()) break;
+
+      const node = (snapshot.sanitizedDom || []).find((n) => n.id === a.targetId);
+      const description = String(node?.text || `${a.type} on ${a.targetId ?? "element"}`).slice(0, 200);
+      const prevSubStatus = sub.status;
+      const prevStateStatus = STATE.status;
+      STATE.pendingConfirmation = {
+        subId: sub.id,
+        actionType: a.type,
+        targetId: a.targetId ?? null,
+        description,
+        resolution: null,
+      };
+      STATE.status = STATUS.AWAITING_CONFIRMATION;
+      sub.status = STATUS.AWAITING_CONFIRMATION;
+      subLog(sub, `awaiting confirmation for risky action: ${a.type} "${description}"`, "warn");
+      await ctx.onUpdate();
+
+      while (!STATE.pendingConfirmation?.resolution && !ctx.isCancelled()) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      const resolution = ctx.isCancelled() ? "deny" : STATE.pendingConfirmation?.resolution;
+      STATE.pendingConfirmation = null;
+      STATE.status = prevStateStatus;
+      sub.status = prevSubStatus;
+      await ctx.onUpdate();
+
+      if (resolution !== "allow") {
+        subLog(sub, `action denied${ctx.isCancelled() ? " (cancelled)" : ""}: ${a.type} "${description}"`, "warn");
+        continue; // re-perceive/re-decide next turn rather than dispatching
+      }
+      subLog(sub, `action allowed by user: ${a.type} "${description}"`);
+    }
+
     const detail = a.url || a.targetId || (a.amount != null ? `${a.amount}px` : "");
-    log(`server → ${a.type} ${detail} ${resp.reasoning ? "(" + resp.reasoning + ")" : ""}`);
-    STATE.status = STATUS.ACTING;
-    await broadcast();
+    subLog(sub, `server → ${a.type} ${detail} ${resp.reasoning ? "(" + resp.reasoning + ")" : ""}`);
+    sub.status = STATUS.ACTING;
+    await ctx.onUpdate();
+
+    // A pause can take effect promptly here too — mid-iteration, not just at the
+    // top of the loop — before we actually dispatch the action to the page.
+    await waitWhilePaused(sub, ctx);
+    if (ctx.isCancelled()) break;
+    sub.status = STATUS.ACTING;
+    await ctx.onUpdate();
 
     try {
-      const actionRes = await dispatchAction(a);
-      if (!actionRes?.ok) log(`action failed: ${actionRes?.error ?? "unknown"}`, "warn");
+      const actionRes = await dispatchAction(sub, a);
+      sub.lastActionResult = { type: a.type, targetId: a.targetId ?? null, ok: !!actionRes?.ok, error: actionRes?.error ?? null };
+      if (!actionRes?.ok) {
+        subLog(sub, `action failed: ${actionRes?.error ?? "unknown"}`, "warn");
+      } else if (a.type === "save_image" && actionRes.imageUrl) {
+        // Content script only resolves the image URL — the actual download needs
+        // chrome.downloads, only available here in the background context.
+        try {
+          await saveImageDownload(sub, ctx, actionRes, a.text || "");
+        } catch (e) {
+          subLog(sub, `save_image download failed: ${e.message}`, "warn");
+        }
+      }
     } catch (e) {
-      log(`action dispatch failed: ${e.message}`, "warn");
+      sub.lastActionResult = { type: a.type, targetId: a.targetId ?? null, ok: false, error: e.message };
+      subLog(sub, `action dispatch failed: ${e.message}`, "warn");
     }
+
+    // No extra inter-step delay here: every action dispatched through content.js's
+    // handleAction already goes through humanBehavior.js (humanClick/humanType/
+    // humanScroll/...), which builds in realistic pointer/keystroke/scroll timing
+    // and its own post-action settle pause. Stacking a flat 700-1500ms on top of
+    // that on every single iteration only doubled real per-iteration latency
+    // without adding any more realism, and worked directly against finishing
+    // longer tasks within their iteration budget.
   }
 
   // Loop ended without an explicit done → best-effort fallback.
-  if (STATE.status !== STATUS.DONE && STATE.status !== STATUS.ERROR) {
-    STATE.status = STATUS.DONE;
-    if (STATE.cancelRequested) {
-      STATE.answer = "Cancelled by user.";
-    } else if (STATE.accumulatedData.length) {
-      STATE.answer =
-        `Stopped after ${STATE.maxIterations} iterations without a final answer. ` +
-        `Collected ${STATE.accumulatedData.length} item(s) so far` +
-        (STATE.targetCount ? ` (target ${STATE.targetCount}).` : ".");
+  if (sub.status !== STATUS.DONE && sub.status !== STATUS.ERROR) {
+    sub.status = STATUS.DONE;
+    if (ctx.isCancelled()) {
+      sub.answer = "Cancelled by user.";
+    } else if (sub.accumulatedData.length) {
+      sub.answer =
+        `Stopped after ${sub.maxIterations} iterations without a final answer. ` +
+        `Collected ${sub.accumulatedData.length} item(s) so far` +
+        (sub.targetCount ? ` (target ${sub.targetCount}).` : ".");
     } else {
-      STATE.answer =
-        `Stopped after ${STATE.maxIterations} iterations without reaching an answer. ` +
+      sub.answer =
+        `Stopped after ${sub.maxIterations} iterations without reaching an answer. ` +
         `Try a more specific task, or check the status log.`;
     }
-    log(STATE.answer, "warn");
+    subLog(sub, sub.answer, "warn");
+  }
+  await ctx.onUpdate();
+  return sub;
+}
+
+// --- Planning (/agent/plan) ---
+
+function singleAgentPlan(prompt) {
+  return { subtasks: [{ id: "sub_1", goal: prompt, startUrl: null }], reasoning: "single-agent mode" };
+}
+
+async function fetchPlan(prompt, currentUrl) {
+  try {
+    const res = await withTimeout(
+      fetch(DEFAULTS.planServerUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt, currentUrl }),
+      }),
+      DEFAULTS.iterationTimeoutMs,
+      "plan-server",
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status} ${body.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    if (!Array.isArray(data?.subtasks) || data.subtasks.length === 0) {
+      throw new Error("plan response missing subtasks");
+    }
+    return { subtasks: data.subtasks, reasoning: data.reasoning ?? "" };
+  } catch (e) {
+    log(`plan call failed (${e.message}); falling back to single-agent plan`, "warn");
+    return null; // caller falls back to singleAgentPlan — planning must never abort the task
+  }
+}
+
+// --- Synthesis (/agent/synthesize) ---
+
+function localSynthesize(originalPrompt, subAgentResults) {
+  return subAgentResults
+    .map((r) => `## ${r.goal}\n${r.answer || "(failed: " + (r.error || "unknown error") + ")"}\n`)
+    .join("\n");
+}
+
+async function synthesize(ctx, originalPrompt, subAgentResults) {
+  if (ctx.localOnly) return localSynthesize(originalPrompt, subAgentResults);
+  try {
+    const res = await withTimeout(
+      fetch(DEFAULTS.synthesizeServerUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ originalPrompt, subAgentResults }),
+      }),
+      DEFAULTS.iterationTimeoutMs,
+      "synthesize-server",
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status} ${body.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    if (typeof data?.answer !== "string") throw new Error("synthesize response missing answer");
+    return data.answer;
+  } catch (e) {
+    log(`synthesize call failed (${e.message}); using local concatenation fallback`, "warn");
+    return localSynthesize(originalPrompt, subAgentResults);
+  }
+}
+
+// --- Orchestration: today's single-tab path, unchanged in spirit ---
+
+async function runSingleAgent(tab) {
+  const subtask = STATE.plan.subtasks[0];
+  const sub = {
+    id: subtask.id || "sub_1",
+    goal: subtask.goal || STATE.prompt,
+    startUrl: subtask.startUrl || null,
+    tabId: STATE.tabId,
+    windowId: tab.windowId,
+    status: STATUS.PERCEIVING,
+    iteration: 0,
+    maxIterations: STATE.maxIterations,
+    accumulatedData: [],
+    answer: null,
+    error: null,
+    log: [],
+    lastRedactionSummary: null,
+    lastRedactionLog: [],
+    lastVisionMode: null,
+    lastScreenState: null,
+    lastThumbnail: null,
+    narration: [],
+    notes: [],
+    savedImages: [],
+    reportFiles: [],
+    metrics: { iterations: [] },
+    cancelRequested: false,
+    logPrefix: "",
+  };
+  STATE.subAgents = [sub];
+
+  const ctx = {
+    serverUrl: STATE.serverUrl,
+    localOnly: STATE.localOnly,
+    memoryFacts: STATE.memoryFacts,
+    taskId: STATE.taskId,
+    isCancelled: () => STATE.cancelRequested,
+    isPaused: () => STATE.pauseRequested,
+    onUpdate: async () => {
+      mirrorSubToState(sub);
+      await broadcast();
+    },
+  };
+
+  if (sub.startUrl) {
+    try {
+      await navAction(sub, { type: "navigate", url: sub.startUrl });
+    } catch (e) {
+      subLog(sub, `startUrl navigation failed: ${e.message}`, "warn");
+    }
+  }
+
+  await runSubLoop(sub, ctx);
+  mirrorSubToState(sub);
+  STATE.localOnly = ctx.localOnly;
+}
+
+// --- Orchestration: multi sub-agent path (Comet mode) ---
+
+async function runMultiAgent(tab) {
+  STATE.status = STATUS.DELEGATING;
+  await broadcast();
+
+  const subtasks = STATE.plan.subtasks;
+  const originalUrl = tab.url;
+  const subAgents = [];
+  const openedWindowIds = [];
+
+  for (let i = 0; i < subtasks.length; i++) {
+    const st = subtasks[i];
+    const subId = st.id || `sub_${i + 1}`;
+    const sub = {
+      id: subId,
+      goal: st.goal || STATE.prompt,
+      startUrl: st.startUrl || null,
+      tabId: null,
+      windowId: null,
+      status: STATUS.PERCEIVING,
+      iteration: 0,
+      maxIterations: STATE.maxIterations,
+      accumulatedData: [],
+      answer: null,
+      error: null,
+      log: [],
+      lastRedactionSummary: null,
+      lastRedactionLog: [],
+      lastVisionMode: null,
+      lastScreenState: null,
+      lastThumbnail: null,
+      narration: [],
+      notes: [],
+      savedImages: [],
+      reportFiles: [],
+      metrics: { iterations: [] },
+      cancelRequested: false,
+      logPrefix: `[${subId}] `,
+      isPrimary: i === 0,
+    };
+
+    if (sub.isPrimary) {
+      // First subtask reuses the original tab/window — no new window needed.
+      sub.tabId = STATE.tabId;
+      sub.windowId = tab.windowId;
+    } else {
+      // chrome.tabs.captureVisibleTab only captures a window's ACTIVE tab, so each
+      // other sub-agent needs its own independent (unfocused) window.
+      try {
+        const win = await chrome.windows.create({ url: sub.startUrl || originalUrl, focused: false });
+        sub.windowId = win.id;
+        const tabsInWin = await chrome.tabs.query({ windowId: win.id });
+        sub.tabId = tabsInWin[0]?.id ?? null;
+        openedWindowIds.push(win.id);
+        if (sub.tabId) await waitForTabLoad(sub.tabId);
+      } catch (e) {
+        sub.status = STATUS.ERROR;
+        sub.error = `could not open window: ${e.message}`;
+      }
+    }
+    subAgents.push(sub);
+  }
+
+  STATE.subAgents = subAgents;
+  await broadcast();
+
+  const ctx = {
+    serverUrl: STATE.serverUrl,
+    localOnly: STATE.localOnly,
+    memoryFacts: STATE.memoryFacts,
+    taskId: STATE.taskId,
+    isCancelled: () => STATE.cancelRequested,
+    isPaused: () => STATE.pauseRequested,
+    onUpdate: async () => {
+      await broadcast(); // STATE.subAgents holds these sub objects by reference
+    },
+  };
+
+  // One sub-agent erroring must not stop the others — each is caught individually,
+  // and Promise.allSettled never rejects regardless.
+  await Promise.allSettled(
+    subAgents.map(async (sub) => {
+      if (sub.status === STATUS.ERROR) return; // window failed to open
+      try {
+        if (!sub.tabId) {
+          sub.status = STATUS.ERROR;
+          sub.error = "no tab available for sub-agent";
+          return;
+        }
+        if (sub.isPrimary && sub.startUrl) {
+          await navAction(sub, { type: "navigate", url: sub.startUrl });
+        } else {
+          await ensureContentScript(sub.tabId);
+        }
+        await runSubLoop(sub, ctx);
+      } catch (e) {
+        sub.status = STATUS.ERROR;
+        sub.error = `sub-agent crashed: ${e.message}`;
+        subLog(sub, sub.error, "error");
+      }
+    }),
+  );
+
+  STATE.localOnly = ctx.localOnly;
+  STATE.accumulatedData = mergeAllSubData(subAgents);
+
+  // Close every extra window we opened and restore focus to the original one,
+  // regardless of whether we stopped normally, on error, or on cancellation.
+  for (const winId of openedWindowIds) {
+    try {
+      await chrome.windows.remove(winId);
+    } catch (e) {
+      /* already closed by the user — fine */
+    }
+  }
+  try {
+    await chrome.windows.update(tab.windowId, { focused: true });
+    await chrome.tabs.update(STATE.tabId, { active: true });
+  } catch (e) {
+    /* original tab/window may have been closed — fine */
+  }
+
+  STATE.status = STATUS.SYNTHESIZING;
+  await broadcast();
+
+  const subAgentResults = subAgents.map((sub) => ({
+    goal: sub.goal,
+    answer: sub.answer,
+    extractedItems: sub.accumulatedData,
+    error: sub.error,
+  }));
+
+  STATE.answer = await synthesize(ctx, STATE.prompt, subAgentResults);
+  STATE.status = STATUS.DONE;
+}
+
+async function orchestrate(tab, multiAgent, startedAt) {
+  RUNNING = true;
+  startKeepAlive();
+  STATE.status = STATUS.PLANNING;
+  await broadcast();
+
+  if (STATE.localOnly || !multiAgent) {
+    STATE.plan = singleAgentPlan(STATE.prompt);
+  } else {
+    const currentUrl = await getCurrentUrl(STATE.tabId);
+    STATE.plan = (await fetchPlan(STATE.prompt, currentUrl)) ?? singleAgentPlan(STATE.prompt);
+  }
+  if (!Array.isArray(STATE.plan.subtasks) || STATE.plan.subtasks.length === 0) {
+    STATE.plan = singleAgentPlan(STATE.prompt);
+  }
+  STATE.plan.subtasks = STATE.plan.subtasks.slice(0, DEFAULTS.maxSubAgents);
+  // Deterministic fallback: don't rely on the planner/LLM to have caught a named
+  // well-known site — if it names one and didn't already set startUrl, resolve it now.
+  for (const st of STATE.plan.subtasks) {
+    if (!st.startUrl) {
+      const guess = resolveKnownSiteUrl(st.goal);
+      if (guess) st.startUrl = guess;
+    }
+  }
+  log(`plan: ${STATE.plan.subtasks.length} subtask(s) — ${STATE.plan.reasoning || ""}`);
+  await broadcast();
+
+  if (STATE.plan.subtasks.length <= 1) {
+    await runSingleAgent(tab);
+  } else {
+    await runMultiAgent(tab);
+  }
+
+  try {
+    await addHistoryEntry({
+      taskId: STATE.taskId,
+      prompt: STATE.prompt,
+      startedAt,
+      finishedAt: Date.now(),
+      status: STATE.status,
+      answer: STATE.answer,
+      itemCount: STATE.accumulatedData.length,
+      host: hostFromUrl(tab.url),
+      plan: STATE.plan,
+      subAgents: STATE.subAgents,
+    });
+  } catch (e) {
+    log(`history write failed: ${e.message}`, "warn");
   }
 
   RUNNING = false;
+  stopKeepAlive();
+  notifyTaskComplete(STATE.status, STATE.status === STATUS.ERROR ? STATE.error : STATE.answer);
   await broadcast();
 }
 
-async function startTask({ prompt, serverUrl, localOnly }) {
+async function startTask({ prompt, serverUrl, localOnly, multiAgentEnabled, maxIterations }) {
   if (RUNNING) {
     log("a task is already running; ignoring RUN_TASK", "warn");
     return;
   }
+  const startedAt = Date.now();
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab?.id) {
     STATE = freshState();
@@ -472,9 +1361,11 @@ async function startTask({ prompt, serverUrl, localOnly }) {
   STATE.localOnly = !!localOnly;
   STATE.tabId = tab.id;
   STATE.targetCount = parseTargetCount(STATE.prompt);
-  STATE.status = STATUS.PERCEIVING;
-  log(`task "${STATE.prompt}" on ${tab.url} (target=${STATE.targetCount || "n/a"}, localOnly=${STATE.localOnly})`);
-  await broadcast();
+  STATE.maxIterations = Math.max(
+    1,
+    Math.min(parseInt(maxIterations, 10) || DEFAULTS.maxIterations, DEFAULTS.maxIterationsCeiling),
+  );
+  const multiAgent = multiAgentEnabled === undefined ? DEFAULTS.multiAgentEnabled : !!multiAgentEnabled;
 
   const restricted = /^(chrome|edge|about|chrome-extension|devtools|view-source):/i.test(tab.url || "");
   if (restricted) {
@@ -487,18 +1378,46 @@ async function startTask({ prompt, serverUrl, localOnly }) {
     return;
   }
 
-  if (!(await ensureContentScript())) {
+  if (!(await ensureContentScript(STATE.tabId))) {
     STATE.status = STATUS.ERROR;
     STATE.error = "could not inject the content script on this page";
     await broadcast();
     return;
   }
 
-  runLoop().catch(async (e) => {
+  try {
+    STATE.memoryFacts = await getMemoryFacts();
+  } catch (e) {
+    STATE.memoryFacts = []; // memoryStore may not be ready / storage unavailable
+  }
+
+  // Brave exposes navigator.brave in every context (including extension service
+  // workers) specifically so extensions can detect it — logged for diagnostics
+  // only; every chrome.* API this extension uses is the same in Brave (Chromium
+  // MV3), so nothing here branches on it. The one Brave-specific risk is its
+  // Shields fingerprinting protection perturbing canvas readback, which would
+  // only affect the (already-optional, mock-fallback) vision pipeline, not core
+  // browsing/action functionality.
+  let browserNote = "";
+  try {
+    if (await navigator.brave?.isBrave?.()) browserNote = ", browser=Brave";
+  } catch (e) {
+    /* not Brave, or API unavailable — fine either way */
+  }
+
+  log(
+    `task "${STATE.prompt}" on ${tab.url} (target=${STATE.targetCount || "n/a"}, ` +
+      `localOnly=${STATE.localOnly}, multiAgent=${multiAgent}${browserNote})`,
+  );
+  await broadcast();
+
+  orchestrate(tab, multiAgent, startedAt).catch(async (e) => {
     STATE.status = STATUS.ERROR;
     STATE.error = `loop crashed: ${e.message}`;
     log(STATE.error, "error");
     RUNNING = false;
+    stopKeepAlive();
+    notifyTaskComplete(STATE.status, STATE.error);
     await broadcast();
   });
 }
@@ -515,6 +1434,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     sendResponse({ ok: true });
     return false;
   }
+  if (msg?.type === MSG.PAUSE_TASK) {
+    STATE.pauseRequested = true;
+    log("pause requested", "warn");
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (msg?.type === MSG.RESUME_TASK) {
+    STATE.pauseRequested = false;
+    log("resume requested", "warn");
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (msg?.type === MSG.CONFIRM_ACTION) {
+    if (STATE.pendingConfirmation) {
+      STATE.pendingConfirmation.resolution = msg?.payload?.allow ? "allow" : "deny";
+    }
+    sendResponse({ ok: true });
+    return false;
+  }
   if (msg?.type === MSG.GET_STATE) {
     sendResponse({ type: MSG.STATE_UPDATE, state: STATE });
     return false;
@@ -522,7 +1460,33 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return false;
 });
 
-// Restore mirrored state on worker wake-up.
+const TERMINAL_STATUSES = new Set([STATUS.IDLE, STATUS.DONE, STATUS.ERROR]);
+
+// Restore mirrored state on worker wake-up. `RUNNING` is always false here (it's a
+// fresh module instance) even if the *previous* instance was killed mid-task by
+// Chrome's MV3 service-worker idle timeout (a real risk on a task with several
+// windows/iterations — e.g. after the browser is backgrounded/minimized for a
+// while). A non-terminal restored status means exactly that happened: the loop
+// that would have finished it is gone, so leaving it as-is would show a
+// perpetually "running" UI with no loop behind it. Surface it as a clear, terminal
+// error instead of silently stuck — the next Run starts a clean task.
 chrome.storage.session.get(STATE_KEY).then((r) => {
-  if (r?.[STATE_KEY]) STATE = { ...freshState(), ...r[STATE_KEY], cancelRequested: false };
+  stopKeepAlive(); // drop any alarm left over from a run that got killed mid-task
+  if (!r?.[STATE_KEY]) return;
+  STATE = {
+    ...freshState(),
+    ...r[STATE_KEY],
+    cancelRequested: false,
+    pauseRequested: false,
+    pendingConfirmation: null,
+  };
+  if (!TERMINAL_STATUSES.has(STATE.status)) {
+    STATE.status = STATUS.ERROR;
+    STATE.error =
+      "The browser paused this extension mid-task (often triggered by switching windows/screens for a while) " +
+      "and the run couldn't finish. Any tabs/windows it had already opened were left as-is — close them if " +
+      "no longer needed, then click Run to retry.";
+    log(STATE.error, "error");
+    broadcast();
+  }
 });
