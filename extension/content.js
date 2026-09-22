@@ -4,7 +4,12 @@
 
 import { MSG } from "./lib/messages.js";
 import { resolveSiteConfig } from "./lib/siteConfigs.js";
-import { extractSnapshot, collectWithScroll, getElementByAgentId } from "./lib/domExtractor.js";
+import {
+  extractSnapshot,
+  collectWithScroll,
+  waitForContent,
+  getElementByAgentId,
+} from "./lib/domExtractor.js";
 import { redactNodes, scrubLog } from "./lib/redact.js";
 import * as vision from "./lib/visionPipeline.js";
 import { redactScreenshot, stripDataUrlPrefix } from "./lib/visualRedact.js";
@@ -72,10 +77,10 @@ async function handleExtract({ screenshot, targetCount = 10, collect = false }) 
   const cfg = resolveSiteConfig(location.hostname);
   const perceiveT0 = performance.now();
 
-  // 1. DOM extraction
+  // 1. DOM extraction (SPA-aware: retry until content hydrates)
   const extraction = collect
     ? await collectWithScroll(cfg, { targetCount })
-    : extractSnapshot(cfg);
+    : await waitForContent(cfg);
   const perceiveMs = Math.round(performance.now() - perceiveT0);
 
   // 2. Vision (parallel-ish; runs after scroll settles)

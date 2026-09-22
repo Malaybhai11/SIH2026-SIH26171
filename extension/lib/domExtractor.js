@@ -159,9 +159,51 @@ export function extractSnapshot(siteConfig) {
       scrollMax: document.documentElement.scrollHeight - window.innerHeight,
       articleRoleCount: nodes.filter((n) => n.role === "article").length,
       hasPasswordField: !!document.querySelector('input[type="password"]'),
+      loginWall: detectLoginWall(),
       viewport: { w: window.innerWidth, h: window.innerHeight },
     },
   };
+}
+
+/** Heuristic: is the page a sign-in gate rather than real content? */
+export function detectLoginWall() {
+  const url = location.href;
+  if (/\/(i\/flow\/login|login|account\/login|signin|sign[_-]?in|auth)(\/|\?|#|$)/i.test(url)) {
+    return true;
+  }
+  const host = location.hostname;
+  if (/(^|\.)(x|twitter)\.com$/i.test(host)) {
+    if (
+      document.querySelector(
+        '[data-testid="loginButton"], [data-testid="LoginForm_Login_Button"], input[autocomplete="username"]',
+      )
+    ) {
+      return true;
+    }
+    // logged-out x.com renders almost no timeline articles
+    const timeline = document.querySelectorAll('article[data-testid="tweet"]').length;
+    const signInCta = /log in|sign up|see what's happening/i.test(document.body?.innerText || "");
+    if (timeline === 0 && signInCta) return true;
+  }
+  const bodyLen = (document.body?.innerText || "").length;
+  if (document.querySelector('input[type="password"]') && bodyLen < 1800) return true;
+  return false;
+}
+
+/**
+ * SPA-aware extract: poll until content appears (or a login wall / try budget).
+ * Cheap when the page is already hydrated — first call returns immediately.
+ */
+export async function waitForContent(siteConfig, { tries = 5, gap = 650 } = {}) {
+  let snap = extractSnapshot(siteConfig);
+  let n = 0;
+  while (snap.nodes.length === 0 && n < tries && !snap.meta.loginWall) {
+    await new Promise((r) => setTimeout(r, gap));
+    snap = extractSnapshot(siteConfig);
+    n += 1;
+  }
+  snap.meta.waitTries = n;
+  return snap;
 }
 
 function keyFor(node, dedupeKey) {
