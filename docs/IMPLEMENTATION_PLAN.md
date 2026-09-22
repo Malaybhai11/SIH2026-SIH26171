@@ -315,3 +315,29 @@ the popup grows). **FastAPI + uvicorn** for the server. **onnxruntime + onnxrunt
 2. Write `docs/api-contract.md`, `docs/model-contract.md`, `extension/lib/messages.js` (§4).
 3. Track C: start BlazeFace export in parallel (0.8).
 4. Stand up the mock-server round trip (0.4 + 0.6) — the first visible milestone.
+
+---
+
+## Phase 6 — Comet mode (planner, parallel sub-agents, memory/history, richer actions)
+
+**Deliverable:** multi-part tasks ("compare X and Y") are decomposed into independent
+sub-goals that run concurrently in separate browser windows and get combined into one
+final answer; the agent can recall facts and past runs across sessions; the browsing
+loop gained a richer, more human-like action vocabulary. Single-part tasks are provably
+unaffected — see `docs/COMET_MODE.md` for the full design writeup.
+
+| # | Task | Effort |
+|---|---|---|
+| 6.1 | `POST /agent/plan`: `server/llm/plan_prompt.py`, `plan_schema.json`, `decide_plan()`/`mock_plan()` in `server/llm/client.py`, `server/routes/agent_plan.py`, registered in `server/app.py`. Runs once per task, before any page is perceived; defaults to 1 subtask, degrades to the mock shape on any LLM failure. | M |
+| 6.2 | `background.js` rewritten around `runSubLoop(sub, ctx)` — the existing PERCEIVE/REDACT/REASON/ACT loop parameterized over a sub-agent object instead of module-level `STATE` — plus `orchestrate()`, which calls `fetchPlan`/`singleAgentPlan` then either `runSingleAgent(tab)` (1 subtask, original behavior) or `runMultiAgent(tab)` (2-5 subtasks: opens an unfocused window per extra subtask, runs every sub-agent's loop concurrently via `Promise.allSettled`, closes the windows, then synthesizes). New `STATUS` values `PLANNING`/`DELEGATING`/`SYNTHESIZING`. | L |
+| 6.3 | `POST /agent/synthesize`: `server/llm/synthesize_prompt.py`, `synthesize_schema.json`, `decide_synthesize()`/`mock_synthesize()`, `server/routes/agent_synthesize.py`, registered in `app.py`. Combines each sub-agent's `{goal, answer, extractedItems, error}` into one final answer; degrades to a `## {goal}\n{answer}` concatenation (matching the extension's own `localSynthesize` fallback) on any failure. | M |
+| 6.4 | Expanded action vocabulary: `select`, `check`, `hover`, `press_key`, `fill_form`, `remember` added to `action_schema.json`, `client.py`'s validator, `prompt_templates.py`, and dispatched in `content.js` with human-like click/type sequencing. `remember` is intercepted in `runSubLoop` before dispatch and never touches the tab — it writes straight to `memoryStore`. | M |
+| 6.5 | `extension/lib/memoryStore.js`: cross-session history (`HISTORY_KEY`) and memory facts (`MEMORY_KEY`) in `chrome.storage.local`, capped and defensive against storage errors. `dashboard.html` gained History and Memory tabs; `popup.html`/`.js` gained a "History & Memory" button. `STATE.memoryFacts` is read at task start and passed to `/agent/step` as an additive request field. | M |
+| 6.6 | Popup UI: a "Multi-agent mode" checkbox (default on) wired into the `RUN_TASK` payload; a collapsed-by-default Plan panel (numbered subtask list + reasoning, hidden for 1-subtask plans) and Sub-agents panel (per-sub-agent status/iteration/answer, hidden for ≤1 sub-agent) added to the existing `render(state)` function — zero rendering changes for single-part tasks. | S |
+
+**Exit criteria:** a single-part task (e.g. the original Elon Musk task) behaves
+identically to before this phase — one tab, one loop, no plan/sub-agents panels shown. A
+multi-part task (e.g. "compare the weather in Paris and Tokyo") opens a second window,
+runs both sub-agents concurrently, and returns one synthesized answer; `npm run build` and
+`npm run test:redact` stay green; `MOCK_LLM=1` smoke tests of `/agent/plan` and
+`/agent/synthesize` return sensible 200 responses with no API key configured.

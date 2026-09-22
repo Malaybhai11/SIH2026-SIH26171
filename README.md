@@ -16,6 +16,16 @@ On-device visual perception + local redaction for a lightweight browser agent.
 See `docs/PRD.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/api-contract.md`,
 `docs/model-contract.md`.
 
+**Comet mode**: an optional planner can split a multi-part task into independent
+sub-goals that run in parallel browser windows, then synthesize one final answer, plus
+cross-session memory/history and a richer action vocabulary (`select`, `check`, `hover`,
+`press_key`, `fill_form`, `remember`, `note`, `save_image`, `compile_report`). Simple
+single-part tasks are unaffected — see [`docs/COMET_MODE.md`](docs/COMET_MODE.md) for how
+it works and why, including the image-saving/report-compilation actions and Brave support.
+
+Works unpacked in any Chromium MV3 browser, Brave included — `chrome://extensions` /
+`brave://extensions` → Developer mode → Load unpacked → `dist/`.
+
 ## Quick start
 
 ### 1. Server
