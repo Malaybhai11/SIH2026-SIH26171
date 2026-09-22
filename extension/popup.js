@@ -2,35 +2,249 @@
 // background.js; the popup only sends RUN_TASK / CANCEL_TASK and renders STATE_UPDATE.
 
 import { MSG, STATUS } from "./lib/messages.js";
+import { renderMarkdownLite } from "./lib/markdownLite.js";
+import { saveTemplate, getTemplates } from "./lib/memoryStore.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
   prompt: $("prompt"),
   serverUrl: $("serverUrl"),
+  maxIterations: $("maxIterations"),
   localOnly: $("localOnly"),
+  multiAgent: $("multiAgent"),
   run: $("run"),
   cancel: $("cancel"),
+  takeOver: $("takeOver"),
+  resumeTask: $("resumeTask"),
   status: $("status"),
   answer: $("answer"),
+  copyAnswer: $("copyAnswer"),
   collected: $("collected"),
+  chips: $("chips"),
+  templateChips: $("templateChips"),
+  templateChipsGroup: $("templateChipsGroup"),
+  saveTemplateBtn: $("saveTemplateBtn"),
+  templateLabel: $("templateLabel"),
+  taskPanel: $("taskPanel"),
+  planPanel: $("planPanel"),
+  planCount: $("planCount"),
+  planBody: $("planBody"),
+  subAgentsPanel: $("subAgentsPanel"),
+  subAgentsCount: $("subAgentsCount"),
+  subAgentsBody: $("subAgentsBody"),
+  notesPanel: $("notesPanel"),
+  notesCount: $("notesCount"),
+  notesBody: $("notesBody"),
+  redactPanel: $("redactPanel"),
   redactCount: $("redactCount"),
   redactBody: $("redactBody"),
+  metricsPanel: $("metricsPanel"),
   metricsBody: $("metricsBody"),
+  logPanel: $("logPanel"),
+  logCount: $("logCount"),
   log: $("log"),
+  openDashboard: $("openDashboard"),
+  confirmBanner: $("confirmBanner"),
+  confirmText: $("confirmText"),
+  confirmAllow: $("confirmAllow"),
+  confirmDeny: $("confirmDeny"),
+  pauseBanner: $("pauseBanner"),
+  pauseText: $("pauseText"),
+  // Tab bar — buttons keyed by the same names as the panels above, so
+  // showTab()/updateTabAvailability() can index both by one name.
+  tabTask: $("tabTask"),
+  tabPlan: $("tabPlan"),
+  tabSubAgents: $("tabSubAgents"),
+  tabNotes: $("tabNotes"),
+  tabRedact: $("tabRedact"),
+  tabMetrics: $("tabMetrics"),
+  tabLog: $("tabLog"),
 };
 
 const BADGE_CLASS = {
   [STATUS.IDLE]: "",
+  [STATUS.PLANNING]: "run",
   [STATUS.PERCEIVING]: "run",
   [STATUS.REDACTING]: "run",
   [STATUS.REASONING]: "run",
   [STATUS.ACTING]: "run",
+  [STATUS.DELEGATING]: "run",
+  [STATUS.SYNTHESIZING]: "run",
+  [STATUS.PAUSED]: "warn",
+  [STATUS.AWAITING_CONFIRMATION]: "warn",
   [STATUS.DONE]: "done",
   [STATUS.ERROR]: "err",
 };
 
+// ---- Tabs ----
+// Keyed by a short name; new tabs (from the integration pass) just need an
+// entry here plus a `data-tab` button + panel with a matching id convention.
+const TAB_PANELS = {
+  task: els.taskPanel,
+  plan: els.planPanel,
+  subAgents: els.subAgentsPanel,
+  notes: els.notesPanel,
+  redact: els.redactPanel,
+  metrics: els.metricsPanel,
+  log: els.logPanel,
+};
+const TAB_BUTTONS = {
+  task: els.tabTask,
+  plan: els.tabPlan,
+  subAgents: els.tabSubAgents,
+  notes: els.tabNotes,
+  redact: els.tabRedact,
+  metrics: els.tabMetrics,
+  log: els.tabLog,
+};
+
+let activeTab = "task";
+
+function showTab(name) {
+  if (!TAB_PANELS[name]) return;
+  activeTab = name;
+  for (const key of Object.keys(TAB_PANELS)) {
+    TAB_PANELS[key].hidden = key !== name;
+    TAB_BUTTONS[key].classList.toggle("active", key === name);
+  }
+}
+
+// Some tabs (Plan, Sub-agents) only make sense once there's actually
+// multi-part data — mirrors the old hidden-<details> behavior. If the
+// currently active tab gets hidden out from under the user, fall back to Task.
+function setTabAvailable(name, available) {
+  const btn = TAB_BUTTONS[name];
+  if (!btn) return;
+  btn.hidden = !available;
+  if (!available && activeTab === name) showTab("task");
+}
+
+for (const [name, btn] of Object.entries(TAB_BUTTONS)) {
+  btn.addEventListener("click", () => showTab(name));
+}
+
+// ---- Example prompt chips ----
+// Shown only while the task is idle and the textarea is empty — not
+// load-bearing, just the cleanest signal that "the user hasn't started yet".
+els.chips.querySelectorAll(".chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    els.prompt.value = chip.textContent;
+    els.prompt.focus();
+    updateChipsVisibility();
+  });
+});
+
+let lastStatus = STATUS.IDLE;
+function updateChipsVisibility() {
+  const idle = lastStatus === STATUS.IDLE || lastStatus === STATUS.DONE || lastStatus === STATUS.ERROR;
+  els.chips.hidden = !idle || els.prompt.value.trim().length > 0;
+}
+els.prompt.addEventListener("input", updateChipsVisibility);
+
+// ---- Saved templates ----
+let cachedTemplates = [];
+
+function renderTemplateChips() {
+  const has = cachedTemplates.length > 0;
+  els.templateChipsGroup.hidden = !has;
+  els.templateChips.hidden = !has;
+  if (!has) {
+    els.templateChips.innerHTML = "";
+    return;
+  }
+  els.templateChips.innerHTML = cachedTemplates
+    .map((t, i) => `<button class="chip" type="button" data-idx="${i}">${escapeHtml(t.label || t.prompt.slice(0, 40))}</button>`)
+    .join("");
+  els.templateChips.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const t = cachedTemplates[Number(chip.dataset.idx)];
+      if (!t) return;
+      els.prompt.value = t.prompt;
+      els.prompt.focus();
+      updateChipsVisibility();
+    });
+  });
+}
+
+async function loadTemplates() {
+  try {
+    cachedTemplates = await getTemplates();
+  } catch (e) {
+    cachedTemplates = [];
+  }
+  renderTemplateChips();
+}
+loadTemplates();
+
+els.saveTemplateBtn.addEventListener("click", () => {
+  if (!els.templateLabel.hidden) {
+    els.templateLabel.hidden = true;
+    return;
+  }
+  els.templateLabel.hidden = false;
+  els.templateLabel.value = "";
+  els.templateLabel.focus();
+});
+
+async function commitTemplateSave() {
+  const label = els.templateLabel.value.trim();
+  const promptText = els.prompt.value;
+  els.templateLabel.hidden = true;
+  if (!label || !promptText.trim()) return; // no-op if prompt is empty
+  try {
+    await saveTemplate(label, promptText);
+    await loadTemplates();
+  } catch (e) {
+    /* best-effort */
+  }
+}
+els.templateLabel.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") {
+    ev.preventDefault();
+    commitTemplateSave();
+  } else if (ev.key === "Escape") {
+    els.templateLabel.hidden = true;
+  }
+});
+els.templateLabel.addEventListener("blur", () => {
+  if (!els.templateLabel.hidden) commitTemplateSave();
+});
+
+// ---- Take over / Resume / Confirmation ----
+els.takeOver.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: MSG.PAUSE_TASK });
+});
+els.resumeTask.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: MSG.RESUME_TASK });
+});
+els.confirmAllow.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: MSG.CONFIRM_ACTION, payload: { allow: true } });
+});
+els.confirmDeny.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: MSG.CONFIRM_ACTION, payload: { allow: false } });
+});
+
+// ---- Copy answer ----
+let lastState = null;
+els.copyAnswer.addEventListener("click", async () => {
+  const text = lastState?.answer || "";
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    const original = els.copyAnswer.textContent;
+    els.copyAnswer.textContent = "Copied!";
+    setTimeout(() => {
+      els.copyAnswer.textContent = original;
+    }, 1500);
+  } catch (e) {
+    /* clipboard permission denied or unavailable — ignore */
+  }
+});
+
 function render(state) {
   if (!state) return;
+  lastState = state;
+  lastStatus = state.status;
   const running = ![STATUS.IDLE, STATUS.DONE, STATUS.ERROR].includes(state.status);
 
   els.status.textContent = state.status + (state.iteration ? ` ${state.iteration}/${state.maxIterations}` : "");
@@ -38,16 +252,34 @@ function render(state) {
   els.run.disabled = running;
   els.cancel.disabled = !running;
 
+  // Take-over / pause banner — mutually exclusive: the Take-over button offers to
+  // pause a live run; once paused, it's replaced by the pause banner + Resume.
+  const paused = state.status === STATUS.PAUSED;
+  els.takeOver.hidden = !running || paused;
+  els.pauseBanner.hidden = !paused;
+  if (paused) {
+    els.pauseText.textContent = state.error || "Paused — click Resume to continue.";
+  }
+
+  // Confirmation banner — needs attention regardless of the active tab.
+  const awaitingConfirm = state.status === STATUS.AWAITING_CONFIRMATION && !!state.pendingConfirmation;
+  els.confirmBanner.hidden = !awaitingConfirm;
+  if (awaitingConfirm) {
+    els.confirmText.textContent = state.pendingConfirmation.description || "Confirm this action?";
+  }
+
   if (state.status === STATUS.ERROR) {
     els.answer.textContent = state.error || "error";
     els.answer.classList.remove("muted");
   } else if (state.answer) {
-    els.answer.textContent = state.answer;
+    els.answer.innerHTML = renderMarkdownLite(state.answer);
     els.answer.classList.remove("muted");
   } else {
     els.answer.textContent = "—";
     els.answer.classList.add("muted");
   }
+
+  updateChipsVisibility();
 
   els.collected.textContent = state.accumulatedData?.length
     ? `${state.accumulatedData.length} item(s) collected` +
@@ -58,7 +290,103 @@ function render(state) {
       ? `vision: ${state.lastVisionMode}${state.localOnly ? " · LOCAL-ONLY" : ""}`
       : "";
 
-  // Redaction panel
+  // Plan tab — only shown for genuinely multi-part tasks (>1 subtask); simple
+  // tasks look identical to before this feature existed.
+  const subtasks = state.plan?.subtasks ?? [];
+  if (subtasks.length > 1) {
+    setTabAvailable("plan", true);
+    els.planCount.textContent = subtasks.length;
+    const items = subtasks.map((s, i) => `<li>${escapeHtml(s.goal)}</li>`).join("");
+    els.planBody.innerHTML =
+      `<ol style="margin:4px 0 6px 18px;padding:0">${items}</ol>` +
+      (state.plan?.reasoning ? `<p class="muted">${escapeHtml(state.plan.reasoning)}</p>` : "");
+  } else {
+    setTabAvailable("plan", false);
+  }
+
+  // Sub-agents tab — only shown once there's more than one sub-agent running.
+  const subAgents = state.subAgents ?? [];
+  if (subAgents.length > 1) {
+    setTabAvailable("subAgents", true);
+    els.subAgentsCount.textContent = subAgents.length;
+    els.subAgentsBody.innerHTML = subAgents
+      .map((sa) => {
+        const badgeClass = BADGE_CLASS[sa.status] ?? "";
+        const iter = sa.iteration ? ` ${sa.iteration}/${sa.maxIterations}` : "";
+        const result = sa.status === STATUS.DONE || sa.status === STATUS.ERROR
+          ? `<div class="muted">${escapeHtml(truncate(sa.error || sa.answer || "", 200))}</div>`
+          : "";
+        const thumb = sa.lastThumbnail
+          ? `<img class="subagent-thumb" src="${sa.lastThumbnail}" alt="" />`
+          : "";
+        const lastNarration = sa.narration?.length ? sa.narration[sa.narration.length - 1] : null;
+        const thinking = lastNarration
+          ? `<div class="subagent-thinking">${escapeHtml(truncate(lastNarration.text, 160))}</div>`
+          : "";
+        return `<div class="subagent-row">
+          <div class="subagent-main">
+            ${thumb}
+            <div class="subagent-info">
+              <div class="subagent-head">
+                <code>${escapeHtml(sa.id)}</code>
+                <span class="badge ${badgeClass}">${escapeHtml(sa.status)}${iter}</span>
+              </div>
+              <div>${escapeHtml(truncate(sa.goal, 140))}</div>
+              ${thinking}
+              ${result}
+            </div>
+          </div>
+        </div>`;
+      })
+      .join("");
+  } else {
+    setTabAvailable("subAgents", false);
+  }
+
+  // Notes tab — every sub-agent's notes combined, newest first, plus any images
+  // the agent downloaded (save_image) and reports it compiled (compile_report) —
+  // both are real files on disk (via chrome.downloads), so surfacing the exact
+  // filenames here is what tells the user where to actually find them.
+  const allNotes = subAgents
+    .flatMap((sa) => (sa.notes || []).map((n) => ({ ...n, subId: sa.id })))
+    .sort((a, b) => b.t - a.t);
+  const allImages = subAgents.flatMap((sa) => sa.savedImages || []);
+  const allReports = subAgents.flatMap((sa) => sa.reportFiles || []);
+  if (allNotes.length || allImages.length || allReports.length) {
+    setTabAvailable("notes", true);
+    els.notesCount.textContent = allNotes.length;
+    const notesHtml = allNotes
+      .map(
+        (n) => `<div class="note-row">
+          <div class="note-head">
+            ${n.label ? `<span class="pill">${escapeHtml(n.label)}</span>` : ""}
+            <span class="muted">${new Date(n.t).toLocaleTimeString()}</span>
+          </div>
+          <div>${escapeHtml(n.text)}</div>
+        </div>`,
+      )
+      .join("");
+    const imagesHtml = allImages.length
+      ? `<div class="chip-group-label small muted">Saved images (Downloads/)</div>` +
+        allImages
+          .map(
+            (img) => `<div class="note-row">
+              <div class="note-head"><code>${escapeHtml(img.filename)}</code></div>
+              ${img.caption ? `<div>${escapeHtml(img.caption)}</div>` : ""}
+            </div>`,
+          )
+          .join("")
+      : "";
+    const reportsHtml = allReports.length
+      ? `<div class="chip-group-label small muted">Report files (Downloads/)</div>` +
+        allReports.map((r) => `<div class="note-row"><code>${escapeHtml(r.filename)}</code></div>`).join("")
+      : "";
+    els.notesBody.innerHTML = notesHtml + imagesHtml + reportsHtml;
+  } else {
+    setTabAvailable("notes", false);
+  }
+
+  // Redaction tab
   const sum = state.lastRedactionSummary;
   els.redactCount.textContent = sum?.total ?? 0;
   if (sum && sum.total > 0) {
@@ -81,7 +409,7 @@ function render(state) {
     els.redactBody.innerHTML = `<p class="muted">No PII detected in the extracted context.</p>`;
   }
 
-  // Metrics panel
+  // Metrics tab
   const iters = state.metrics?.iterations ?? [];
   if (iters.length) {
     const head = `<tr><th>#</th><th>perceive</th><th>redact</th><th>vision</th><th>server</th><th>total</th></tr>`;
@@ -98,8 +426,10 @@ function render(state) {
     els.metricsBody.innerHTML = `<p class="muted">No iterations yet.</p>`;
   }
 
-  // Log
-  els.log.innerHTML = (state.log || [])
+  // Log tab
+  const logEntries = state.log || [];
+  els.logCount.textContent = logEntries.length;
+  els.log.innerHTML = logEntries
     .slice(-80)
     .map((e) => `<li class="${e.level}">${new Date(e.t).toLocaleTimeString()}  ${escapeHtml(e.msg)}</li>`)
     .join("");
@@ -108,6 +438,11 @@ function render(state) {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+}
+
+function truncate(s, n) {
+  s = String(s ?? "");
+  return s.length > n ? s.slice(0, n) + "…" : s;
 }
 
 els.run.addEventListener("click", () => {
@@ -122,12 +457,18 @@ els.run.addEventListener("click", () => {
       prompt,
       serverUrl: els.serverUrl.value.trim(),
       localOnly: els.localOnly.checked,
+      multiAgentEnabled: els.multiAgent.checked,
+      maxIterations: parseInt(els.maxIterations.value, 10) || undefined,
     },
   });
 });
 
 els.cancel.addEventListener("click", () => {
   chrome.runtime.sendMessage({ type: MSG.CANCEL_TASK });
+});
+
+els.openDashboard.addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -140,6 +481,11 @@ chrome.runtime.sendMessage({ type: MSG.GET_STATE }).then((res) => {
     render(res.state);
     if (res.state.prompt) els.prompt.value = res.state.prompt;
     if (res.state.serverUrl) els.serverUrl.value = res.state.serverUrl;
+    if (res.state.maxIterations) els.maxIterations.value = res.state.maxIterations;
     els.localOnly.checked = !!res.state.localOnly;
+    // STATE doesn't persist a multiAgentEnabled field today — default to checked
+    // unless a matching field happens to exist, so this stays a no-op until it does.
+    els.multiAgent.checked = res.state.multiAgentEnabled === undefined ? true : !!res.state.multiAgentEnabled;
+    updateChipsVisibility();
   }
 });
