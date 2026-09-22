@@ -4,24 +4,12 @@
   "version": "0.1.0",
   "description": "On-device visual perception + local redaction for a lightweight browser agent (SIH PS 26171).",
   "permissions": ["activeTab", "scripting", "storage", "tabs"],
-  "host_permissions": [
-    "https://x.com/*",
-    "https://twitter.com/*",
-    "https://news.ycombinator.com/*",
-    "https://en.wikipedia.org/*",
-    "http://localhost:8000/*",
-    "http://127.0.0.1:8000/*"
-  ],
+  "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "Privacy-Preserving Browser Agent" },
   "content_scripts": [
     {
-      "matches": [
-        "https://x.com/*",
-        "https://twitter.com/*",
-        "https://news.ycombinator.com/*",
-        "https://en.wikipedia.org/*"
-      ],
+      "matches": ["<all_urls>"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

@@ -97,15 +97,28 @@ Error `code` values: `llm_unavailable`, `llm_malformed`, `bad_request`, `interna
 
 ## Action vocabulary
 
-| type | fields used | client behaviour |
-|---|---|---|
-| `click` | `targetId` | click the element with that `data-agent-id`, wait for settle |
-| `scroll` | `amount` | `window.scrollBy(0, amount)`, wait for settle, re-extract with dedupe |
-| `type` | `targetId`, `text` | focus element, set value, dispatch `input`/`change` |
-| `wait` | `ms` | sleep, then re-extract |
-| `extract` | — | re-run extraction on current viewport without navigating |
+| type | fields used | where | client behaviour |
+|---|---|---|---|
+| `click` | `targetId` | content | click the element (or its inner link/button) with that `data-agent-id` |
+| `scroll` | `amount` | content | `window.scrollBy(0, amount)`, settle, re-extract with dedupe |
+| `type` | `targetId`, `text` | content | focus element, set value, dispatch `input`/`change` |
+| `wait` | `ms` | content | sleep, then re-extract |
+| `extract` | — | content | re-run extraction on current viewport |
+| `navigate` | `url` | background | `chrome.tabs.update` current tab to `url`, wait for load, re-inject |
+| `open_tab` | `url` | background | `chrome.tabs.create` a new active tab; subsequent steps target it |
+| `switch_tab` | `index` | background | activate the 0-based tab in the current window |
+| `back` | — | background | `chrome.tabs.goBack`, wait for load |
 
-`done` as an action type is not used — completion is signalled by `status: "done"`.
+`done` is not an action type — completion is signalled by `status: "done"`.
+
+Navigation actions are executed by the background worker (they need `chrome.tabs`);
+the rest are dispatched to the content script. After every navigation the background
+worker re-injects the content script and re-perceives.
+
+### Request additions (v1, additive)
+
+- `currentUrl`: string — the active tab's URL this turn.
+- `openTabs`: `[{ index, active, title, url }]` — tabs in the current window.
 
 ---
 
