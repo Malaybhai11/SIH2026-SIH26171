@@ -1,0 +1,22 @@
+{
+  "id": "05_news_article",
+  "description": "News article — public figures + org names are NOT PII here (task-relevant). Only the reporter's contact block is.",
+  "nodes": [
+    { "id": "a1", "role": "heading", "text": "ISRO sets launch window for next Gaganyaan test flight" },
+    { "id": "a2", "role": "paragraph", "text": "The Indian Space Research Organisation confirmed the uncrewed test will fly from Sriharikota." },
+    { "id": "a3", "role": "paragraph", "text": "Chairman S. Somanath said the crew module passed all abort-system checks." },
+    { "id": "a4", "role": "paragraph", "text": "Tips: reporter@newsdesk.example — desk +44 20 7946 0958" }
+  ],
+  "labels": {
+    "pii": [
+      { "elementId": "a4", "type": "EMAIL", "value": "reporter@newsdesk.example" },
+      { "elementId": "a4", "type": "PHONE", "value": "+44 20 7946 0958" }
+    ],
+    "negatives": [
+      { "elementId": "a1", "value": "Gaganyaan test flight" },
+      { "elementId": "a2", "value": "Indian Space Research Organisation" },
+      { "elementId": "a2", "value": "Sriharikota" },
+      { "elementId": "a3", "value": "S. Somanath" }
+    ]
+  }
+}

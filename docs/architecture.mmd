@@ -1,0 +1,31 @@
+flowchart TD
+    subgraph Browser["Chrome Extension (client)"]
+        POP["Popup UI\n(prompt, status log, answer, redaction panel)"]
+        BG["Background Service Worker\n(agent loop state machine)"]
+        CS["Content Script\n(injected per tab)"]
+        DOME["DOM Extractor\n(lib/domExtractor.js)"]
+        VIS["Vision Pipeline\n(lib/visionPipeline.js)\nONNX Runtime Web + WebGPU/WASM/mock"]
+        RED["Redaction Engine\n(lib/redact.js)\nregex + NER + visual black-box"]
+    end
+
+    subgraph Server["Server (FastAPI)"]
+        API["/agent/step"]
+        QA["server-side regex leak check"]
+        ORC["Orchestrator\n(prompt build + schema validation)"]
+        LLM["LLM (Claude, tool/structured output)\nor MOCK_LLM"]
+    end
+
+    POP -->|RUN_TASK prompt| BG
+    BG -->|EXTRACT_SNAPSHOT| CS
+    CS --> DOME
+    CS -->|screenshot| VIS
+    VIS -->|boxes + screenState| RED
+    DOME -->|raw nodes| RED
+    RED -->|sanitized nodes + redacted screenshot + local redaction log| CS
+    CS -->|SNAPSHOT| BG
+    BG -->|POST sanitized context + task| API
+    API --> QA --> ORC --> LLM
+    LLM -->|action JSON or final answer| ORC --> API
+    API -->|response| BG
+    BG -->|EXECUTE_ACTION| CS
+    BG -->|STATE_UPDATE| POP

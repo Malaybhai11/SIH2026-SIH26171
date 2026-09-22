@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Privacy-Preserving Browser Agent",
+  "version": "0.1.0",
+  "description": "On-device visual perception + local redaction for a lightweight browser agent (SIH PS 26171).",
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
+  "host_permissions": [
+    "https://x.com/*",
+    "https://twitter.com/*",
+    "https://news.ycombinator.com/*",
+    "https://en.wikipedia.org/*",
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "Privacy-Preserving Browser Agent" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*",
+        "https://news.ycombinator.com/*",
+        "https://en.wikipedia.org/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["models/*", "dashboard.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

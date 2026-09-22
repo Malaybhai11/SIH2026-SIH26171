@@ -1,0 +1,51 @@
+{
+  "$comment": "Machine copy of the /agent/step RESPONSE schema (docs/api-contract.md). Used for LLM structured-output constraint and server-side validation.",
+  "type": "object",
+  "properties": {
+    "status": { "type": "string", "enum": ["action", "done"] },
+    "action": {
+      "type": ["object", "null"],
+      "properties": {
+        "type": { "type": "string", "enum": ["click", "scroll", "type", "wait", "extract"] },
+        "targetId": { "type": ["string", "null"] },
+        "amount": { "type": ["integer", "null"] },
+        "text": { "type": ["string", "null"] },
+        "ms": { "type": ["integer", "null"] }
+      },
+      "required": ["type", "targetId", "amount", "text", "ms"],
+      "additionalProperties": false
+    },
+    "extracted": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "author": { "type": ["string", "null"] },
+          "text": { "type": ["string", "null"] },
+          "timestamp": { "type": ["string", "null"] },
+          "href": { "type": ["string", "null"] }
+        },
+        "required": ["author", "text", "timestamp", "href"],
+        "additionalProperties": false
+      }
+    },
+    "answer": { "type": ["string", "null"] },
+    "extractedItems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "author": { "type": ["string", "null"] },
+          "text": { "type": ["string", "null"] },
+          "timestamp": { "type": ["string", "null"] },
+          "href": { "type": ["string", "null"] }
+        },
+        "required": ["author", "text", "timestamp", "href"],
+        "additionalProperties": false
+      }
+    },
+    "reasoning": { "type": "string" }
+  },
+  "required": ["status", "action", "extracted", "answer", "extractedItems", "reasoning"],
+  "additionalProperties": false
+}

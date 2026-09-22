@@ -1,0 +1,30 @@
+# Build output
+/dist/
+/extension/models/*.onnx
+/extension/models/*.wasm
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Eval artifacts (regenerated)
+/eval/report.json
+/eval/.cache/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

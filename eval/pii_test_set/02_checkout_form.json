@@ -1,0 +1,29 @@
+{
+  "id": "02_checkout_form",
+  "description": "Checkout page — payment + shipping PII, plus product text that must survive.",
+  "nodes": [
+    { "id": "c1", "role": "heading", "text": "Checkout" },
+    { "id": "c2", "role": "textbox", "text": "Card number 4242 4242 4242 4242" },
+    { "id": "c3", "role": "textbox", "text": "Name on card: John Q Public" },
+    { "id": "c4", "role": "paragraph", "text": "Ship to 350 Fifth Avenue, New York" },
+    { "id": "c5", "role": "paragraph", "text": "Order confirmation sent to john.public@example.com" },
+    { "id": "c6", "role": "listitem", "text": "1x Raspberry Pi 5 (8GB) — $80.00" },
+    { "id": "c7", "role": "listitem", "text": "2x USB-C cable — $12.00" },
+    { "id": "c8", "role": "paragraph", "text": "Support line: 1-800-555-0199" }
+  ],
+  "labels": {
+    "pii": [
+      { "elementId": "c2", "type": "CC", "value": "4242 4242 4242 4242" },
+      { "elementId": "c3", "type": "NAME", "value": "John Q Public" },
+      { "elementId": "c4", "type": "ADDRESS", "value": "350 Fifth Avenue" },
+      { "elementId": "c4", "type": "LOCATION", "value": "New York" },
+      { "elementId": "c5", "type": "EMAIL", "value": "john.public@example.com" },
+      { "elementId": "c8", "type": "PHONE", "value": "1-800-555-0199" }
+    ],
+    "negatives": [
+      { "elementId": "c6", "value": "Raspberry Pi 5 (8GB)" },
+      { "elementId": "c6", "value": "$80.00" },
+      { "elementId": "c7", "value": "USB-C cable" }
+    ]
+  }
+}
