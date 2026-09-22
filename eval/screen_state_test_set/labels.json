@@ -1,0 +1,12 @@
+{
+  "_comment": "filename -> ground-truth screen state. Drop the matching .png screenshots in this directory. States: login | feed | checkout | form | content | unknown. Target ~60-100 labeled examples across all states for a meaningful accuracy number (criterion 1).",
+  "login_gmail.png": "login",
+  "login_bank.png": "login",
+  "feed_x_home.png": "feed",
+  "feed_reddit.png": "feed",
+  "checkout_amazon.png": "checkout",
+  "checkout_stripe.png": "checkout",
+  "form_signup.png": "form",
+  "content_wikipedia.png": "content",
+  "content_news_article.png": "content"
+}
