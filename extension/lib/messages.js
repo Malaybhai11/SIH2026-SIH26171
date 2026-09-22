@@ -6,6 +6,9 @@ export const MSG = Object.freeze({
   RUN_TASK: "RUN_TASK",
   CANCEL_TASK: "CANCEL_TASK",
   GET_STATE: "GET_STATE",
+  PAUSE_TASK: "PAUSE_TASK",
+  RESUME_TASK: "RESUME_TASK",
+  CONFIRM_ACTION: "CONFIRM_ACTION", // payload: { allow: boolean }
   // background -> popup
   STATE_UPDATE: "STATE_UPDATE",
   // background -> content script
@@ -20,10 +23,15 @@ export const MSG = Object.freeze({
 
 export const STATUS = Object.freeze({
   IDLE: "IDLE",
+  PLANNING: "PLANNING",
   PERCEIVING: "PERCEIVING",
   REDACTING: "REDACTING",
   REASONING: "REASONING",
   ACTING: "ACTING",
+  DELEGATING: "DELEGATING",
+  SYNTHESIZING: "SYNTHESIZING",
+  PAUSED: "PAUSED",
+  AWAITING_CONFIRMATION: "AWAITING_CONFIRMATION",
   DONE: "DONE",
   ERROR: "ERROR",
 });
@@ -31,12 +39,33 @@ export const STATUS = Object.freeze({
 export const CONTRACT_VERSION = 1;
 
 export const DEFAULTS = Object.freeze({
-  maxIterations: 8,
+  // A fixed low cap was cutting off genuinely big tasks before they could finish.
+  // There's no truly "unlimited" option — a broken loop with no ceiling at all would
+  // burn LLM calls, tabs, and battery forever — but this is high enough that a
+  // sane task finishes long before hitting it; the loop-guards (repeated-action,
+  // repeated-host) are what actually stop a stuck task, not this number. Users can
+  // raise it further (up to maxIterationsCeiling) from the popup.
+  maxIterations: 40,
+  maxIterationsCeiling: 300,
   iterationTimeoutMs: 15000,
   serverUrl: "http://localhost:8000/agent/step",
+  planServerUrl: "http://localhost:8000/agent/plan",
+  synthesizeServerUrl: "http://localhost:8000/agent/synthesize",
   scrollAmount: 900,
   settleMs: 700,
+  maxSubAgents: 5,
+  multiAgentEnabled: true,
 });
 
 // chrome.storage.session key holding the live task state object.
 export const STATE_KEY = "agentTaskState";
+
+// chrome.storage.local keys — cross-session memory, never cleared on task start.
+export const HISTORY_KEY = "agentTaskHistory";
+export const MEMORY_KEY = "agentMemoryFacts";
+export const NOTES_KEY = "agentNotes";
+export const TEMPLATES_KEY = "agentTemplates";
+export const HISTORY_LIMIT = 200;
+export const MEMORY_LIMIT = 100;
+export const NOTES_LIMIT = 300;
+export const TEMPLATES_LIMIT = 50;
