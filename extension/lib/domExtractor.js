@@ -24,14 +24,79 @@ function inViewport(rect) {
   );
 }
 
+// input[type=X] -> accessibility role. Anything not listed here (text, search,
+// email, url, tel, number, password, date/time pickers, …) falls through to
+// "textbox", which is correct for those — but NOT for file/checkbox/radio, which
+// need their own action types (`check`) or can't be filled programmatically at all.
+const INPUT_TYPE_ROLE = {
+  submit: "button",
+  button: "button",
+  image: "button",
+  reset: "button",
+  checkbox: "checkbox",
+  radio: "radio",
+  file: "file",
+  range: "slider",
+  color: "button",
+};
+
+export const ALERT_CONTAINER_SELECTORS = [
+  ".toaster",
+  ".toast-container",
+  ".toasts",
+  "[data-sonner-toaster]",
+  "[data-radix-toast-viewport]",
+  ".Toastify",
+  ".ant-message",
+  ".ant-notification",
+  ".notifications-container",
+].join(", ");
+
+export const GLOBAL_ALERT_SELECTORS = [
+  '[role="alert"]',
+  '[role="status"]',
+  '[role="alertdialog"]',
+  '[aria-live="assertive"]',
+  '[aria-live="polite"]',
+  '[data-sonner-toast]',
+  '[data-radix-toast-content]',
+  '.react-hot-toast',
+  '.Toastify__toast',
+  '.MuiAlert-root',
+  '.MuiSnackbar-root',
+  '.ant-message-notice',
+  '.ant-notification-notice',
+  '.toast',
+  '.alert',
+  '.notification',
+  '[class*="toast" i]:not(body):not(html):not(#root):not(#__next):not([data-sonner-toaster]):not(.toaster):not(.toast-container)',
+  '[class*="alert" i]:not(body):not(html):not(#root):not(#__next)',
+  '[class*="snackbar" i]',
+  '[data-testid*="toast" i]',
+  '[data-testid*="alert" i]',
+  '[data-testid*="error" i]',
+  '[class*="error-message" i]',
+  '[class*="invalid-feedback" i]',
+  '[class*="text-destructive" i]',
+].join(", ");
+
 function inferRole(el) {
   const explicit = el.getAttribute("role");
   if (explicit) return explicit;
   const tag = el.tagName.toLowerCase();
+  if (tag === "input") return INPUT_TYPE_ROLE[(el.type || "text").toLowerCase()] || "textbox";
+  if (el.isContentEditable) return "textbox";
+  try {
+    if (el.matches?.('[data-sonner-toast], [data-radix-toast-content], .toast, [class*="toast" i], [class*="alert" i]')) {
+      return "alert";
+    }
+    if (el.matches?.('[class*="error" i], [class*="invalid" i], [class*="destructive" i]')) {
+      return "alert";
+    }
+  } catch {}
   const map = {
     a: "link",
     button: "button",
-    input: el.type === "submit" || el.type === "button" ? "button" : "textbox",
     textarea: "textbox",
     select: "combobox",
     article: "article",
@@ -42,6 +107,7 @@ function inferRole(el) {
     p: "paragraph",
     img: "image",
     nav: "navigation",
+    dialog: "dialog",
   };
   return map[tag] || tag;
 }
@@ -51,12 +117,105 @@ function isInteractive(el) {
   if (["a", "button", "input", "textarea", "select"].includes(tag)) return true;
   const role = el.getAttribute("role");
   if (["button", "link", "menuitem", "tab", "checkbox", "textbox"].includes(role)) return true;
+  if (el.isContentEditable) return true;
   if (el.hasAttribute("onclick") || el.tabIndex >= 0) return true;
   return false;
 }
 
 function cleanText(s) {
   return (s || "").replace(/\s+/g, " ").trim().slice(0, TEXT_LIMIT);
+}
+
+function extractFormFieldText(el) {
+  const parts = [];
+
+  // 1. Associated label text
+  let labelText = "";
+  if (el.labels && el.labels.length) {
+    labelText = Array.from(el.labels).map((l) => cleanText(l.textContent)).filter(Boolean).join(" ");
+  }
+  if (!labelText && el.getAttribute("aria-labelledby")) {
+    const ids = el.getAttribute("aria-labelledby").split(/\s+/);
+    labelText = ids.map((id) => cleanText(document.getElementById(id)?.textContent)).filter(Boolean).join(" ");
+  }
+  if (!labelText && el.id) {
+    try {
+      const labelEl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (labelEl) labelText = cleanText(labelEl.textContent);
+    } catch {}
+  }
+  if (!labelText) {
+    const parentLabel = el.closest?.("label");
+    if (parentLabel) {
+      try {
+        const clone = parentLabel.cloneNode(true);
+        clone.querySelectorAll("input, textarea, select, button").forEach((i) => i.remove());
+        labelText = cleanText(clone.textContent);
+      } catch {}
+    }
+  }
+  if (!labelText && el.getAttribute("aria-label")) {
+    labelText = cleanText(el.getAttribute("aria-label"));
+  }
+
+  // 2. Placeholder
+  const placeholder = el.getAttribute("placeholder");
+
+  // 3. Name or id
+  const nameOrId = el.name || el.id;
+
+  // Primary field name
+  const primaryName = labelText || placeholder || nameOrId || "";
+  if (primaryName) parts.push(primaryName);
+
+  if (placeholder && placeholder !== primaryName) {
+    parts.push(`placeholder: "${cleanText(placeholder)}"`);
+  }
+
+  if (el.value && el.type !== "password") {
+    parts.push(`value: "${cleanText(el.value)}"`);
+  }
+
+  const isRequired = el.required || el.hasAttribute("required") || el.getAttribute("aria-required") === "true";
+  if (isRequired) {
+    parts.push("REQUIRED");
+  }
+
+  // Validation error state and message
+  let errorMsg = "";
+  if (el.getAttribute("aria-errormessage")) {
+    const errEl = document.getElementById(el.getAttribute("aria-errormessage"));
+    if (errEl) errorMsg = cleanText(errEl.textContent);
+  }
+  if (!errorMsg) {
+    const container = el.closest?.(".form-group, .form-item, .field, [class*='field'], [class*='form'], div") || el.parentElement;
+    if (container) {
+      const nearbyErr = container.querySelector(
+        '[role="alert"], [class*="error" i], [class*="invalid" i], [class*="destructive" i], [data-error]'
+      );
+      if (nearbyErr && nearbyErr !== el && cleanText(nearbyErr.textContent)) {
+        errorMsg = cleanText(nearbyErr.textContent);
+      }
+    }
+  }
+
+  const isAriaInvalid = el.getAttribute("aria-invalid") === "true";
+  let isUserInvalid = false;
+  try {
+    isUserInvalid = el.matches?.(":user-invalid") || false;
+  } catch {}
+
+  if (!errorMsg && (isAriaInvalid || isUserInvalid) && el.validationMessage) {
+    errorMsg = cleanText(el.validationMessage);
+  }
+
+  if (errorMsg) {
+    parts.push(`VALIDATION ERROR: "${errorMsg}"`);
+  } else if (isAriaInvalid || isUserInvalid) {
+    parts.push("INVALID");
+  }
+
+  return parts.join(" | ") || cleanText(el.value || "");
 }
 
 function firstText(root, selector) {
@@ -98,11 +257,36 @@ export function extractSnapshot(siteConfig) {
   const cfg = siteConfig;
   const nodes = [];
   const seenEls = new WeakSet();
+  const activeToasts = [];
 
-  const candidates = document.querySelectorAll(cfg.itemSelector);
+  // Combine site-specific selector with global toast/alert selectors so alerts
+  // and floating notifications are never missed regardless of the active site config.
+  const selector = cfg.itemSelector
+    ? `${cfg.itemSelector}, ${GLOBAL_ALERT_SELECTORS}`
+    : GLOBAL_ALERT_SELECTORS;
+
+  const candidates = document.querySelectorAll(selector);
   for (const el of candidates) {
     if (seenEls.has(el)) continue;
     seenEls.add(el);
+
+    // Skip toast container wrappers (e.g. .toaster, [data-sonner-toaster])
+    try {
+      if (el.matches?.(ALERT_CONTAINER_SELECTORS)) continue;
+    } catch {}
+
+    // Skip non-interactive children inside an alert element to avoid duplicating alert text
+    try {
+      const parentAlert = el.parentElement?.closest?.(GLOBAL_ALERT_SELECTORS);
+      if (parentAlert && parentAlert !== el && !isInteractive(el)) continue;
+    } catch {}
+
+    // File inputs can't be filled programmatically (browsers reject any value but
+    // "") even when — as with many upload buttons — an invisible one is layered
+    // over a visible custom control and so still passes the viewport check below.
+    // Surfacing it as a normal "textbox" just invites the agent to try to type
+    // into it and fail every time.
+    if (el.tagName === "INPUT" && (el.type || "").toLowerCase() === "file") continue;
 
     const rect = el.getBoundingClientRect();
     if (!inViewport(rect)) continue;
@@ -113,14 +297,39 @@ export function extractSnapshot(siteConfig) {
       el.setAttribute(AGENT_ID_ATTR, id);
     }
 
+    const tag = el.tagName.toLowerCase();
     const hasFieldConfig = cfg.fields && Object.keys(cfg.fields).length > 0;
-    const text = hasFieldConfig
-      ? firstText(el, cfg.fields.text) || cleanText(el.textContent)
-      : cleanText(el.textContent) || cleanText(el.getAttribute("aria-label") || el.value || "");
+
+    let text = "";
+    if (tag === "input" || tag === "textarea" || tag === "select") {
+      text = extractFormFieldText(el);
+    } else if (hasFieldConfig) {
+      text = firstText(el, cfg.fields.text) || cleanText(el.textContent);
+    } else {
+      text =
+        cleanText(el.textContent) ||
+        cleanText(el.getAttribute("aria-label") || el.getAttribute("title") || el.value || (tag === "img" ? el.alt : "") || "");
+    }
+
+    // Check if this is a toast or alert notification
+    const isToastOrAlert =
+      el.getAttribute("role") === "alert" ||
+      el.getAttribute("role") === "status" ||
+      el.matches?.(GLOBAL_ALERT_SELECTORS);
+
+    if (isToastOrAlert) {
+      const rawToastText = cleanText(el.textContent);
+      if (rawToastText && !activeToasts.includes(rawToastText)) {
+        activeToasts.push(rawToastText);
+      }
+      if (text && !text.toLowerCase().startsWith("toast") && !text.toLowerCase().startsWith("[toast")) {
+        text = `[TOAST / ALERT]: ${text}`;
+      }
+    }
 
     const node = {
       id,
-      role: cfg.role || inferRole(el),
+      role: isToastOrAlert ? "alert" : cfg.role || inferRole(el),
       text,
       rect: {
         x: Math.round(rect.x),
@@ -130,6 +339,18 @@ export function extractSnapshot(siteConfig) {
       },
       interactive: isInteractive(el),
     };
+
+    if (el.tagName === "SELECT") {
+      node.value = el.value;
+      node.options = [...el.options].map((o) => ({ value: o.value, text: cleanText(o.textContent) }));
+    } else if (el.tagName === "INPUT" && (el.type === "checkbox" || el.type === "radio")) {
+      node.checked = el.checked;
+      node.value = el.value;
+    } else if (el.tagName === "IMG") {
+      // Resolved absolute URL so the LLM can see (and later target via save_image)
+      // which images exist without guessing blindly.
+      node.src = el.currentSrc || el.src || "";
+    }
 
     if (hasFieldConfig) {
       if (cfg.fields.author) node.author = firstText(el, cfg.fields.author);
@@ -160,6 +381,8 @@ export function extractSnapshot(siteConfig) {
       articleRoleCount: nodes.filter((n) => n.role === "article").length,
       hasPasswordField: !!document.querySelector('input[type="password"]'),
       loginWall: detectLoginWall(),
+      captchaWall: detectCaptcha(),
+      toasts: activeToasts,
       viewport: { w: window.innerWidth, h: window.innerHeight },
     },
   };
@@ -175,18 +398,49 @@ export function detectLoginWall() {
   if (/(^|\.)(x|twitter)\.com$/i.test(host)) {
     if (
       document.querySelector(
-        '[data-testid="loginButton"], [data-testid="LoginForm_Login_Button"], input[autocomplete="username"]',
+        '[data-testid="loginButton"], [data-testid="LoginForm_Login_Button"], input[autocomplete="username"], [data-testid="sheetDialog"]',
       )
     ) {
       return true;
     }
+    // X unauthenticated interstitial modal / bottom sheet. `.?` between "what"
+    // and "s" matches a straight apostrophe, a curly one, or none — the two
+    // checks here previously used different apostrophe characters, so one could
+    // silently never match the live page's actual text.
+    const dialog = document.querySelector('div[role="dialog"]');
+    if (dialog && /sign in to x|log in to x|see what.?s happening/i.test(dialog.innerText || "")) {
+      return true;
+    }
     // logged-out x.com renders almost no timeline articles
     const timeline = document.querySelectorAll('article[data-testid="tweet"]').length;
-    const signInCta = /log in|sign up|see what's happening/i.test(document.body?.innerText || "");
+    const signInCta = /log in|sign up|see what.?s happening/i.test(document.body?.innerText || "");
     if (timeline === 0 && signInCta) return true;
   }
   const bodyLen = (document.body?.innerText || "").length;
   if (document.querySelector('input[type="password"]') && bodyLen < 1800) return true;
+  return false;
+}
+
+/** Heuristic: is the page a CAPTCHA / automated-bot challenge rather than real content? */
+export function detectCaptcha() {
+  if (
+    document.querySelector(
+      'iframe[src*="recaptcha"], .g-recaptcha, #recaptcha, iframe[src*="hcaptcha"], .h-captcha, #px-captcha, [class*="datadome"], iframe[src*="arkoselabs"], iframe[src*="funcaptcha"], #arkose, div[data-e2e="arkose-frame"], iframe[src*="challenges.cloudflare.com"], .cf-turnstile',
+    )
+  ) {
+    return true;
+  }
+  if (document.querySelector("#challenge-running, #cf-challenge-running")) return true;
+  const title = document.title || "";
+  if (/just a moment|attention required/i.test(title)) return true;
+  const bodyText = (document.body?.innerText || "").slice(0, 2500);
+  if (
+    /verify you are human|i'?m not a robot|security check|checking your browser|prove you'?re human|rate limit exceeded|unusual traffic from your computer network/i.test(
+      bodyText,
+    )
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -219,9 +473,9 @@ function keyFor(node, dedupeKey) {
  */
 export async function collectWithScroll(siteConfig, {
   targetCount = 10,
-  maxAttempts = 12,
-  step = 900,
-  settleMs = 700,
+  maxAttempts = 15,
+  step = 750,
+  settleMs = 1200,
 } = {}) {
   const cfg = siteConfig;
   const byKey = new Map();
@@ -245,16 +499,24 @@ export async function collectWithScroll(siteConfig, {
 
   absorb();
   while (byKey.size < targetCount && attempts < maxAttempts) {
+    if (lastMeta?.loginWall || lastMeta?.captchaWall) break;
+
     const beforeY = window.scrollY;
-    window.scrollBy(0, step);
-    await new Promise((r) => setTimeout(r, settleMs));
+    // Human-like smooth scroll with variance
+    const jitteredStep = Math.round(step * (0.88 + Math.random() * 0.24));
+    window.scrollBy({ top: jitteredStep, behavior: "smooth" });
+
+    // Adaptive settle delay allowing SPA virtual lists & network responses to hydrate
+    const delay = settleMs + Math.random() * 500;
+    await new Promise((r) => setTimeout(r, delay));
+
     const added = absorb();
     attempts++;
 
     const movedTo = window.scrollY;
     if (movedTo === beforeY || added === 0) {
       stagnation++;
-      if (stagnation >= 2) break; // dead-end: rate limit / login wall / end of feed
+      if (stagnation >= 3) break; // dead-end: rate limit / login wall / end of feed
     } else {
       stagnation = 0;
     }
