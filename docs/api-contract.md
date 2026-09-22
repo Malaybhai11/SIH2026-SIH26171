@@ -130,3 +130,87 @@ worker re-injects the content script and re-perceives.
 2. Validates its own LLM output against `action_schema.json`; one retry-with-correction on
    failure, then `status:"error", code:"llm_malformed"`.
 3. Never persists `sanitizedDom`, `redactedScreenshot`, or `accumulatedData`.
+
+---
+
+# API Contract — `POST /agent/plan`
+
+Runs ONCE per task, before any page is perceived, to decide whether the task should run
+as a single browsing session or be split into up to 5 independent sub-goals that run in
+parallel browser windows (each later driven turn-by-turn via `/agent/step`, one instance
+per subtask). Stateless, like `/agent/step`; `server/llm/plan_schema.json` is the machine
+copy of the response schema.
+
+## Request
+
+```jsonc
+{
+  "prompt": "compare stripe's pricing page and paddle's pricing page",
+  "currentUrl": "https://example.com/"   // the active tab's URL when the task started; null if unknown
+}
+```
+
+## Response
+
+```jsonc
+{
+  "subtasks": [
+    { "id": "sub_1", "goal": "Summarize Stripe's pricing page.", "startUrl": "https://stripe.com/pricing" },
+    { "id": "sub_2", "goal": "Summarize Paddle's pricing page.", "startUrl": "https://paddle.com/pricing" }
+  ],
+  "reasoning": "Two independent pricing pages to compare, so split into 2 parallel subtasks.",
+  "_debug": { "engine": "mock", "serverMs": 1 }
+}
+```
+
+- `subtasks`: 1-5 entries. The overwhelming majority of tasks come back as exactly 1
+  subtask whose `goal` is the original `prompt` verbatim — only genuinely parallelizable
+  multi-part tasks (e.g. "compare X and Y", "research A, B and C") get split. Each `goal`
+  is a complete, standalone instruction suitable to hand directly to `/agent/step` as its
+  `prompt`.
+- `startUrl`: a specific URL if the task/subtask named one; otherwise `null`, meaning the
+  browsing agent should start from `currentUrl`.
+- Never hard-fails: if the LLM planner errors or returns something unusable, the server
+  degrades to the same single-subtask shape a mock planner would produce rather than
+  failing the whole task.
+
+---
+
+# API Contract — `POST /agent/synthesize`
+
+Runs ONCE per task, after every sub-agent from `/agent/plan`'s split has finished (or the
+extension's own `localSynthesize` fallback is used instead). Combines each sub-agent's
+result into one coherent final answer to the user's original prompt. Stateless, like
+`/agent/step` and `/agent/plan`; `server/llm/synthesize_schema.json` is the machine copy of
+the response schema.
+
+## Request
+
+```jsonc
+{
+  "originalPrompt": "compare the weather in Paris and Tokyo",
+  "subAgentResults": [
+    { "goal": "weather in Paris", "answer": "Sunny, 20C", "extractedItems": [], "error": null },
+    { "goal": "weather in Tokyo", "answer": "Rainy, 15C", "extractedItems": [], "error": null }
+  ]
+}
+```
+
+- `subAgentResults[].answer`: the sub-agent's final answer, or `null`/omitted if it failed.
+- `subAgentResults[].error`: the failure reason if the sub-agent ended in `ERROR`, else `null`.
+- `subAgentResults[].extractedItems`: the sub-agent's accumulated items (context only — the
+  synthesizer isn't required to echo them back).
+
+## Response
+
+```jsonc
+{
+  "answer": "Paris is sunny at 20C while Tokyo is rainy at 15C, so ...",
+  "_debug": { "engine": "mock", "serverMs": 1 }
+}
+```
+
+- Never hard-fails: if the LLM synthesizer errors or returns something unusable, the server
+  degrades to the same `## {goal}\n{answer}` concatenation the extension's own
+  `localSynthesize` fallback produces (see `extension/background.js`), so the caller always
+  gets a usable `answer` string.
