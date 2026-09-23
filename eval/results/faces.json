@@ -1,0 +1,25 @@
+{
+  "dataset": "WIDER FACE val, 300 images (every 10th), faces >= 24px, IoU >= 0.5",
+  "model": "YuNet 2023mar FP32 (0.2 MB)",
+  "scoreThresh": 0.5,
+  "tp": 1280,
+  "fp": 354,
+  "fn": 468,
+  "precision": 0.783,
+  "recall": 0.732,
+  "recallBySize": {
+    "24-48": {
+      "recall": 0.652,
+      "n": 1050
+    },
+    "48-96": {
+      "recall": 0.811,
+      "n": 433
+    },
+    "96+": {
+      "recall": 0.921,
+      "n": 265
+    }
+  },
+  "avgMsPerImage_1thread": 36.6
+}
