@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Bharat Digital Bank — KYC update</title><link rel="stylesheet" href="demo.css"></head>
+<body><header class="top"><b>🏦 Bharat Digital Bank</b><nav><a href="#">Accounts</a><a href="#">Payments</a><a href="#">Profile</a></nav></header>
+<main><section class="card"><h2 style="margin:0 0 12px">Re-KYC: review your details</h2>
+<div class="row" style="align-items:flex-start"><img class="photo" src="img/person1.jpg" data-face alt="Customer photo">
+<dl class="kv"><dt>Name</dt><dd data-pii="NAME">Ananya Iyer</dd><dt>Customer ID</dt><dd>CUST-00482</dd>
+<dt>Date of birth</dt><dd>DOB: <span data-pii="DOB">14/08/1995</span></dd><dt>Aadhaar</dt><dd data-pii="AADHAAR">2345 6789 0124</dd>
+<dt>PAN</dt><dd data-pii="PAN">ABCPI1234K</dd><dt>Mobile</dt><dd data-pii="PHONE">98765 43210</dd><dt>Email</dt><dd data-pii="EMAIL">ananya.iyer@dakmail.in</dd>
+<dt>Address</dt><dd data-pii="ADDRESS">Flat 402, Sai Krupa Apartments, 5th Cross, Indiranagar, Bengaluru - 560038</dd>
+<dt>Account</dt><dd>A/c No: <span data-pii="BANK_ACCOUNT">50100234567812</span> · IFSC BDBK0001234</dd></dl></div></section>
+<section class="card"><h3 style="margin:0 0 8px">Documents on file</h3><div class="row">
+<img src="img/id_card.png" width="320" data-sensitive-img="id_card" alt="Uploaded identity document">
+<img src="img/signature.png" width="200" data-sensitive-img="signature" alt="Specimen signature"></div></section>
+<form class="card" onsubmit="event.preventDefault();document.getElementById('done').hidden=false;"><div class="grid2">
+<div><label for="occ">Occupation</label><select id="occ"><option value="">Select…</option><option>Salaried</option><option>Self-employed</option><option>Student</option><option>Retired</option></select></div>
+<div><label for="inc">Annual income</label><select id="inc"><option value="">Select…</option><option>Below 5 lakh</option><option>5–10 lakh</option><option>10–25 lakh</option><option>Above 25 lakh</option></select></div>
+<div><label for="pwd">Transaction password (to confirm)</label><input id="pwd" type="password" value="Hunter2!2026" data-pii="PASSWORD"></div>
+<div><label for="otp">OTP</label><input id="otp" autocomplete="one-time-code" value="551920" data-pii="OTP"></div></div>
+<p><button type="submit">Submit KYC</button></p><p id="done" hidden class="tag" role="status">KYC update submitted ✔</p></form></main></body></html>

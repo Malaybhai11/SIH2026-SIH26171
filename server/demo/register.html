@@ -1,0 +1,19 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Space Science Outreach 2026 — Registration</title><link rel="stylesheet" href="demo.css"></head>
+<body><header class="top"><b>🚀 Space Science Outreach 2026</b><nav><a href="#">About</a><a href="#">Schedule</a><a href="#">Contact</a></nav></header>
+<main>
+<section class="card"><h1 style="margin:0 0 6px">Participant registration</h1><p class="muted">Public lecture series on satellite navigation and Earth observation. Seats are limited — register below.</p>
+<img src="img/chart.png" alt="" width="300" style="float:right;margin-left:16px;border:1px solid var(--line);border-radius:8px">
+<p>Venue: Auditorium, Ahmedabad campus · 14 November 2026 · 10:00–13:00</p></section>
+<form class="card" id="reg" onsubmit="event.preventDefault();document.getElementById('ok').hidden=false;">
+<div class="grid2">
+<div><label for="fullname">Full name</label><input id="fullname" name="fullname" autocomplete="name" required></div>
+<div><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required></div>
+<div><label for="phone">Mobile number</label><input id="phone" name="phone" type="tel" autocomplete="tel" required></div>
+<div><label for="city">City</label><input id="city" name="city" required></div>
+<div><label for="cat">Category</label><select id="cat" name="cat"><option value="">Select…</option><option>Student</option><option>Faculty</option><option>Professional</option><option>Other</option></select></div>
+<div><label for="org">Institution / organisation</label><input id="org" name="org"></div>
+</div>
+<p><label><input type="checkbox" id="consent" style="width:auto" required> I agree to receive event updates</label></p>
+<button type="submit">Register</button>
+<p id="ok" hidden class="tag" role="status">Registration received ✔</p>
+</form></main></body></html>
