@@ -1,0 +1,9 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Checkout — KiranaKart</title><link rel="stylesheet" href="demo.css"></head>
+<body><header class="top"><b>🛒 KiranaKart</b><nav><a href="#">Cart (3)</a></nav></header>
+<main style="grid-template-columns:2fr 1fr"><form class="card" onsubmit="event.preventDefault()"><h2 style="margin-top:0">Payment</h2>
+<div class="grid2"><div><label for="cc">Card number</label><input id="cc" autocomplete="cc-number" value="4111 1111 1111 1111" data-pii="CC"></div>
+<div><label for="ccname">Name on card</label><input id="ccname" autocomplete="cc-name" value="Rohan Mehta" data-pii="NAME"></div>
+<div><label for="exp">Expiry</label><input id="exp" autocomplete="cc-exp" value="12/28" data-pii="CC"></div><div><label for="cvv">CVV</label><input id="cvv" autocomplete="cc-csc" value="123" data-pii="CVV"></div></div>
+<h3>Deliver to</h3><p><span data-pii="NAME">Rohan Mehta</span><br><span data-pii="ADDRESS">House No. 12, Sector 15, Rohini, Delhi 110085</span><br>Phone: <span data-pii="PHONE">+91 98111 22334</span></p>
+<button type="submit">Pay ₹2,347</button></form>
+<aside class="card"><h3 style="margin-top:0">Order summary</h3><table><tr><td>Basmati rice 5 kg</td><td>₹899</td></tr><tr><td>Toor dal 2 kg</td><td>₹398</td></tr><tr><td>Masala chai 500 g</td><td>₹1,050</td></tr><tr><th>Total</th><th>₹2,347</th></tr></table><p class="muted">Order #402-1234567-8901234</p></aside></main></body></html>
