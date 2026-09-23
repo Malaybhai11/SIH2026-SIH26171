@@ -1,0 +1,358 @@
+{
+  "generatedAt": "2026-09-24T17:24:56.168Z",
+  "engine": "rules (regex + Luhn/Verhoeff/GSTIN validators) + BERT-small PII NER INT8 (29 MB)",
+  "ai4privacy_en": {
+    "source": "ai4privacy/pii-masking-200k english, first 500 rows",
+    "rulesOnly": {
+      "recall": 0.289,
+      "precision": 1,
+      "f1": 0.448,
+      "goldSpans": 743,
+      "predictedSpans": 309,
+      "nerMsPerSentence": 0,
+      "perType": {
+        "ADDRESS": {
+          "recall": 0.072,
+          "falsePositives": 0,
+          "n": 125
+        },
+        "BANK_ACCOUNT": {
+          "recall": 0.697,
+          "falsePositives": 0,
+          "n": 33
+        },
+        "CC": {
+          "recall": 0.741,
+          "falsePositives": 0,
+          "n": 27
+        },
+        "CVV": {
+          "recall": 0.714,
+          "falsePositives": 0,
+          "n": 7
+        },
+        "DOB": {
+          "recall": 0,
+          "falsePositives": 0,
+          "n": 30
+        },
+        "EMAIL": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 47
+        },
+        "IP": {
+          "recall": 0.983,
+          "falsePositives": 0,
+          "n": 58
+        },
+        "LOCATION": {
+          "recall": 0,
+          "falsePositives": 0,
+          "n": 85
+        },
+        "NAME": {
+          "recall": 0,
+          "falsePositives": 0,
+          "n": 238
+        },
+        "PASSWORD": {
+          "recall": 0.438,
+          "falsePositives": 0,
+          "n": 48
+        },
+        "PHONE": {
+          "recall": 0.828,
+          "falsePositives": 0,
+          "n": 29
+        },
+        "SSN": {
+          "recall": 0.563,
+          "falsePositives": 0,
+          "n": 16
+        }
+      }
+    },
+    "rulesPlusNer": {
+      "recall": 0.751,
+      "precision": 0.991,
+      "f1": 0.854,
+      "goldSpans": 743,
+      "predictedSpans": 668,
+      "nerMsPerSentence": 16,
+      "perType": {
+        "ADDRESS": {
+          "recall": 0.624,
+          "falsePositives": 0,
+          "n": 125
+        },
+        "BANK_ACCOUNT": {
+          "recall": 0.697,
+          "falsePositives": 0,
+          "n": 33
+        },
+        "CC": {
+          "recall": 0.741,
+          "falsePositives": 0,
+          "n": 27
+        },
+        "CVV": {
+          "recall": 0.714,
+          "falsePositives": 0,
+          "n": 7
+        },
+        "DOB": {
+          "recall": 0,
+          "falsePositives": 0,
+          "n": 30
+        },
+        "EMAIL": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 47
+        },
+        "IP": {
+          "recall": 0.983,
+          "falsePositives": 0,
+          "n": 58
+        },
+        "LOCATION": {
+          "recall": 0.812,
+          "falsePositives": 3,
+          "n": 85
+        },
+        "NAME": {
+          "recall": 0.861,
+          "falsePositives": 3,
+          "n": 238
+        },
+        "PASSWORD": {
+          "recall": 0.438,
+          "falsePositives": 0,
+          "n": 48
+        },
+        "PHONE": {
+          "recall": 0.828,
+          "falsePositives": 0,
+          "n": 29
+        },
+        "SSN": {
+          "recall": 0.563,
+          "falsePositives": 0,
+          "n": 16
+        }
+      }
+    }
+  },
+  "indian_synthetic": {
+    "source": "360 sentences from 36 templates (24 with PII, 12 hard-negative)",
+    "rulesOnly": {
+      "recall": 0.606,
+      "precision": 0.995,
+      "f1": 0.753,
+      "goldSpans": 340,
+      "predictedSpans": 207,
+      "hardNegatives": {
+        "sentences": 120,
+        "falseAlarms": 1
+      },
+      "nerMsPerSentence": 0,
+      "perType": {
+        "AADHAAR": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "ADDRESS": {
+          "recall": 0.8,
+          "falsePositives": 0,
+          "n": 20
+        },
+        "BANK_ACCOUNT": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "CC": {
+          "recall": 1,
+          "falsePositives": 1,
+          "n": 10
+        },
+        "CVV": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "DOB": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "EMAIL": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 20
+        },
+        "GSTIN": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "IP": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "LOCATION": {
+          "recall": 0,
+          "falsePositives": 0,
+          "n": 30
+        },
+        "NAME": {
+          "recall": 0,
+          "falsePositives": 0,
+          "n": 100
+        },
+        "OTP": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 20
+        },
+        "PAN": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "PASSPORT": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "PASSWORD": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "PHONE": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 30
+        },
+        "UPI": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "VOTER_ID": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        }
+      }
+    },
+    "rulesPlusNer": {
+      "recall": 0.956,
+      "precision": 0.985,
+      "f1": 0.97,
+      "goldSpans": 340,
+      "predictedSpans": 335,
+      "hardNegatives": {
+        "sentences": 120,
+        "falseAlarms": 1
+      },
+      "nerMsPerSentence": 5.4,
+      "perType": {
+        "AADHAAR": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "ADDRESS": {
+          "recall": 0.95,
+          "falsePositives": 0,
+          "n": 20
+        },
+        "BANK_ACCOUNT": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "CC": {
+          "recall": 1,
+          "falsePositives": 1,
+          "n": 10
+        },
+        "CVV": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "DOB": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "EMAIL": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 20
+        },
+        "GSTIN": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "IP": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "LOCATION": {
+          "recall": 0.833,
+          "falsePositives": 2,
+          "n": 30
+        },
+        "NAME": {
+          "recall": 0.91,
+          "falsePositives": 2,
+          "n": 100
+        },
+        "OTP": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 20
+        },
+        "PAN": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "PASSPORT": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "PASSWORD": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "PHONE": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 30
+        },
+        "UPI": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "VOTER_ID": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        }
+      }
+    }
+  }
+}
