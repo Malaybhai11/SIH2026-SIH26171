@@ -2,19 +2,50 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import time
+from collections import deque
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from server.llm.client import decide_step
-from server.redaction_qa.server_side_regex_check import check_and_repair, scrub_text
+from server.redaction_qa.server_side_regex_check import check_and_repair, scrub_text, scrub_tree
 
 router = APIRouter()
 
 # In-process QA counters (dev-time metrics; not persisted).
 QA_STATS = {"requests": 0, "leak_catch_events": 0, "leaked_spans": 0}
+
+# Server-side audit of EXACTLY what arrived (AUDIT_LOG=1): lets anyone verify the
+# privacy claim from the receiving end. The redacted image is logged as size + hash
+# (and saved alongside when AUDIT_IMAGES=1) — this is the server's view, by design.
+_AUDIT = os.environ.get("AUDIT_LOG", "").lower() in {"1", "true", "yes"}
+_AUDIT_IMAGES = os.environ.get("AUDIT_IMAGES", "").lower() in {"1", "true", "yes"}
+_AUDIT_DIR = Path(__file__).resolve().parents[1] / "audit"
+_RECENT: deque = deque(maxlen=20)
+
+
+def _audit(raw: dict) -> None:
+    entry = {k: v for k, v in raw.items() if k != "redactedScreenshot"}
+    img = raw.get("redactedScreenshot")
+    if img:
+        entry["redactedScreenshot"] = {"bytes": len(img) * 3 // 4, "sha256": hashlib.sha256(img.encode()).hexdigest()[:16]}
+    entry["_receivedAt"] = time.time()
+    _RECENT.append({**entry, "_image": img if _AUDIT_IMAGES else None})
+    if not _AUDIT:
+        return
+    _AUDIT_DIR.mkdir(exist_ok=True)
+    with open(_AUDIT_DIR / "requests.jsonl", "a") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    if img and _AUDIT_IMAGES:
+        import base64
+
+        (_AUDIT_DIR / f"{entry['redactedScreenshot']['sha256']}.jpg").write_bytes(base64.b64decode(img))
 
 
 class Rect(BaseModel):
@@ -25,6 +56,9 @@ class Rect(BaseModel):
 
 
 class Node(BaseModel):
+    # keep select options / values / checked / src etc. — they are part of the contract
+    model_config = ConfigDict(extra="allow")
+
     id: str
     role: str = "generic"
     text: str = ""
@@ -52,14 +86,17 @@ class StepRequest(BaseModel):
     redactedScreenshot: Optional[str] = None
     sanitizedDom: list[Node] = Field(default_factory=list)
     accumulatedData: list[dict[str, Any]] = Field(default_factory=list)
-    memoryFacts: list[dict[str, Any]] = Field(default_factory=list)
+    memoryFacts: list[Any] = Field(default_factory=list)
     lastActionResult: Optional[dict[str, Any]] = None
+    visualContext: dict[str, Any] = Field(default_factory=dict)
+    redactionScheme: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/agent/step")
 def agent_step(req: StepRequest) -> dict:
     t0 = time.perf_counter()
     QA_STATS["requests"] += 1
+    _audit(req.model_dump())
 
     # 1. Server-side redaction QA (defense in depth) — repair, don't reject.
     dom_dicts = [n.model_dump() for n in req.sanitizedDom]
@@ -68,9 +105,19 @@ def agent_step(req: StepRequest) -> dict:
         QA_STATS["leak_catch_events"] += 1
         QA_STATS["leaked_spans"] += qa.leak_count
 
-    # 2. Hand the repaired context to the step decider.
+    # 2. Hand the repaired context to the step decider. Every other string field
+    #    (task text, tabs, accumulated items, memory) gets the same check.
     llm_input = req.model_dump()
     llm_input["sanitizedDom"] = qa.sanitized_dom
+    for fld in ("prompt", "openTabs", "accumulatedData", "memoryFacts", "currentUrl", "lastActionResult"):
+        repaired, hits = scrub_tree(llm_input.get(fld))
+        if hits:
+            QA_STATS["leak_catch_events"] += 1
+            QA_STATS["leaked_spans"] += sum(hits.values())
+            qa.leak_count += sum(hits.values())
+            for k, v in hits.items():
+                qa.leaks_by_type[k] = qa.leaks_by_type.get(k, 0) + v
+        llm_input[fld] = repaired
 
     if isinstance(llm_input.get("pageMeta"), dict) and "toasts" in llm_input["pageMeta"]:
         toasts = llm_input["pageMeta"].get("toasts")
@@ -124,3 +171,10 @@ def qa_stats() -> dict:
         **QA_STATS,
         "leak_catch_rate": round(QA_STATS["leak_catch_events"] / reqs, 4),
     }
+
+
+@router.get("/agent/last-received")
+def last_received(n: int = 1, image: bool = False) -> list:
+    """What the server actually received on the last n steps (the 'server view')."""
+    out = list(_RECENT)[-n:]
+    return [{k: v for k, v in e.items() if image or k != "_image"} for e in out]
