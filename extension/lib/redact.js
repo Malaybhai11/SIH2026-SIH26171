@@ -137,6 +137,35 @@ export function applyNerTags(input, tags) {
 }
 
 /**
+ * Redact a single string using regex and optional NER tagger.
+ * @param {string} input
+ * @param {object} [opts]
+ * @param {(text:string)=>Promise<Array<{start,end,label}>>} [opts.nerTag]
+ * @returns {Promise<{ text: string, hits: Array<{type:string,value:string}> }>}
+ */
+export async function redactText(input, opts = {}) {
+  if (!input || typeof input !== "string") return { text: input ?? "", hits: [] };
+  const { nerTag } = opts;
+  const r1 = redactTextRegex(input);
+  let text = r1.text;
+  const hits = [...r1.hits];
+
+  if (nerTag && text.length > 3 && /[A-Za-z]/.test(text)) {
+    try {
+      const tags = await nerTag(text);
+      const r2 = applyNerTags(text, tags);
+      text = r2.text;
+      hits.push(...r2.hits);
+    } catch (err) {
+      // NER is best-effort; regex layer already ran.
+      console.warn("[redact] nerTag failed", err);
+    }
+  }
+
+  return { text, hits };
+}
+
+/**
  * Redact an array of extracted DOM nodes in place-safe fashion.
  * @param {Array<object>} nodes  extractor output; each may have `text`, `author`.
  * @param {object} opts
@@ -144,7 +173,6 @@ export function applyNerTags(input, tags) {
  * @returns {Promise<{ nodes: Array<object>, log: Array<{type,value,elementId}> }>}
  */
 export async function redactNodes(nodes, opts = {}) {
-  const { nerTag } = opts;
   const log = [];
   const out = [];
 
@@ -154,21 +182,8 @@ export async function redactNodes(nodes, opts = {}) {
       const original = copy[field];
       if (!original || typeof original !== "string") continue;
 
-      const r1 = redactTextRegex(original);
-      let text = r1.text;
-      for (const h of r1.hits) log.push({ type: h.type, value: h.value, elementId: node.id });
-
-      if (nerTag && text.length > 3 && /[A-Za-z]/.test(text)) {
-        try {
-          const tags = await nerTag(text);
-          const r2 = applyNerTags(text, tags);
-          text = r2.text;
-          for (const h of r2.hits) log.push({ type: h.type, value: h.value, elementId: node.id });
-        } catch (err) {
-          // NER is best-effort; regex layer already ran.
-          console.warn("[redact] nerTag failed", err);
-        }
-      }
+      const { text, hits } = await redactText(original, opts);
+      for (const h of hits) log.push({ type: h.type, value: h.value, elementId: node.id });
       copy[field] = text;
     }
     out.push(copy);

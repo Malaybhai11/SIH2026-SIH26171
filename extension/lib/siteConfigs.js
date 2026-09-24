@@ -47,11 +47,36 @@ export const SITE_CONFIGS = {
     role: "paragraph",
   },
 
+  "linkedin.com": {
+    id: "linkedin.com",
+    hostPatterns: [/(^|\.)linkedin\.com$/i],
+    // LinkedIn doesn't expose stable test ids like x.com, and its markup shifts
+    // often — several historically-seen hooks are OR'd together here rather than
+    // betting on just one. If ALL of these go stale at once, content.js's
+    // generic-selector fallback (triggered when a site config matches zero
+    // elements) still keeps the page usable instead of silently returning empty.
+    itemSelector:
+      'div[data-urn], div[data-id^="urn:li:activity"], div.feed-shared-update-v2, div.occludable-update, article',
+    fields: {
+      text: ".update-components-text, .feed-shared-update-v2__description, span[dir='ltr']",
+      href: "a.app-aware-link",
+    },
+    dedupeKey: "id", // data-urn isn't reliably exposed as a plain href; fall back to node id
+    role: "article",
+  },
+
   generic: {
     id: "generic",
     hostPatterns: [],
+    // [contenteditable] matters more than it looks: most chat/rich-text composers
+    // (ChatGPT included) are a contenteditable div, not an <input>/<textarea> — miss
+    // it and the agent has no real text field to target at all.
+    // `img` is a last-resort hook so a standalone image (e.g. inside an article)
+    // is directly targetable for save_image, not just reachable as a descendant.
+    // Toasts, alerts, notifications, and form validation messages are explicitly included
+    // so the agent can see floating toasts, error states, and live system feedback.
     itemSelector:
-      'button, a[href], input:not([type="hidden"]), textarea, select, [role="button"], [role="link"], article, [role="article"], li, h1, h2, h3, p',
+      'button, a[href], input:not([type="hidden"]), textarea, select, [role="button"], [role="link"], [role="alert"], [role="status"], [role="alertdialog"], [role="dialog"], [aria-live], article, [role="article"], li, h1, h2, h3, p, [contenteditable="true"], [contenteditable=""], img, [data-sonner-toast], [data-radix-toast-content], .toast, .toaster, .alert, .notification, [class*="toast" i], [class*="alert" i], [class*="notification" i], [class*="snackbar" i], [class*="banner" i], [data-testid*="toast" i], [data-testid*="alert" i], [data-testid*="error" i], [class*="error-message" i], [class*="invalid-feedback" i], [class*="text-destructive" i], [data-error], [data-invalid]',
     fields: {},
     dedupeKey: "id",
     role: null,
