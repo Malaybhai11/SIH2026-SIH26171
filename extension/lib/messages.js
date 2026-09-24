@@ -9,12 +9,16 @@ export const MSG = Object.freeze({
   PAUSE_TASK: "PAUSE_TASK",
   RESUME_TASK: "RESUME_TASK",
   CONFIRM_ACTION: "CONFIRM_ACTION", // payload: { allow: boolean }
+  PRIVACY_PREVIEW: "PRIVACY_PREVIEW", // payload: { tabId?, mode? } -> what would leave the device
+  SAVE_SETTINGS: "SAVE_SETTINGS",
+  WARMUP: "WARMUP", // popup opened: load models while the user types
   // background -> popup
   STATE_UPDATE: "STATE_UPDATE",
   // background -> content script
   EXTRACT_SNAPSHOT: "EXTRACT_SNAPSHOT",
   COLLECT_WITH_SCROLL: "COLLECT_WITH_SCROLL",
   EXECUTE_ACTION: "EXECUTE_ACTION",
+  GEOMETRY: "GEOMETRY",
   PING: "PING",
   // content script -> background
   SNAPSHOT: "SNAPSHOT",
@@ -54,7 +58,14 @@ export const DEFAULTS = Object.freeze({
   scrollAmount: 900,
   settleMs: 700,
   maxSubAgents: 5,
-  multiAgentEnabled: true,
+  // Parallel sub-agents multiply client compute; off by default (resource metric).
+  multiAgentEnabled: false,
+  // "eco" (faces + text only) | "balanced" (+ CLIP screen/regions, cached) | "max"
+  perceptionMode: "balanced",
+  // Human-like pointer/keystroke simulation. Off: direct DOM events, ~10x faster steps.
+  humanize: false,
+  // Attach the redacted, Set-of-Marks-annotated screenshot for the server VLM.
+  sendScreenshot: true,
 });
 
 // chrome.storage.session key holding the live task state object.

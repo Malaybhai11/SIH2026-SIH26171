@@ -9,6 +9,30 @@
 
 import { MSG, STATUS, CONTRACT_VERSION, DEFAULTS, STATE_KEY } from "./lib/messages.js";
 import { getMemoryFacts, addHistoryEntry, rememberFact, addNote } from "./lib/memoryStore.js";
+import { Vault, applySpans, detectRuleSpans } from "./lib/redact.js";
+import { perception } from "./lib/perceptionClient.js";
+import {
+  perceiveStep,
+  egressGate,
+  rehydrateAction,
+  sanitizeUrl,
+  tokenizeOutgoing,
+  backgroundNerTag,
+} from "./lib/privacyPipeline.js";
+
+const SETTINGS_KEY = "agentSettings";
+async function loadSettings() {
+  const stored = (await chrome.storage.local.get(SETTINGS_KEY).catch(() => ({})))[SETTINGS_KEY] || {};
+  return {
+    perceptionMode: stored.perceptionMode ?? DEFAULTS.perceptionMode,
+    humanize: stored.humanize ?? DEFAULTS.humanize,
+    sendScreenshot: stored.sendScreenshot ?? DEFAULTS.sendScreenshot,
+  };
+}
+
+// Task-scoped pseudonym vault (token <-> real value). Memory only; never persisted,
+// never broadcast, never sent. Shared by sub-agents so tokens agree across windows.
+let VAULT = new Vault();
 
 let STATE = freshState();
 let RUNNING = false;
@@ -59,6 +83,12 @@ function freshState() {
     plan: null,
     subAgents: [],
     memoryFacts: [],
+    settings: null,
+    engineStats: null,
+    lastVisual: null,
+    lastRedactedImage: null,
+    vaultCatalog: [],
+    privacy: { gateFixes: 0, boxesPainted: 0, tokens: 0, bytesSent: 0 },
   };
 }
 
@@ -73,7 +103,8 @@ async function persist() {
   try {
     const forStorage = {
       ...STATE,
-      subAgents: (STATE.subAgents || []).map((s) => ({ ...s, lastThumbnail: null })),
+      subAgents: (STATE.subAgents || []).map((s) => ({ ...s, lastThumbnail: null, lastRedactedImage: null })),
+      lastRedactedImage: null,
     };
     await chrome.storage.session.set({ [STATE_KEY]: forStorage });
   } catch (e) {
@@ -225,13 +256,16 @@ const KNOWN_SITES = {
 };
 
 function resolveKnownSiteUrl(text) {
-  const t = (text || "").toLowerCase();
+  // PII first: "priya@gmail.com" must not read as "go to Gmail"
+  const t = applySpans(text || "", detectRuleSpans(text || "")).toLowerCase();
   if (/https?:\/\//.test(t)) return null; // an explicit URL is already given
   const m = t.match(/\b(?:go to|open|visit|navigate to)\s+([a-z][a-z0-9.\s]{1,20}?)(?:\s+(?:and|,|to|then)\b|[.,!?]|$)/i);
   const named = (m ? m[1] : "").trim();
   if (named && KNOWN_SITES[named]) return KNOWN_SITES[named];
+  // "... on youtube", "from reddit", "in gmail" — a site named as the place to act
   for (const [alias, url] of Object.entries(KNOWN_SITES)) {
-    if (new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(t)) return url;
+    const a = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`\\b(?:on|from|in|at|search|using)\\s+(?:the\\s+)?${a}\\b`, "i").test(t)) return url;
   }
   return null;
 }
@@ -400,9 +434,11 @@ async function navAction(sub, action) {
 }
 
 async function dispatchAction(sub, action) {
+  // tokens ([PHONE_1], [NAME_2] ...) become real values only here, on-device
+  action = rehydrateAction(action, VAULT);
   if (NAV_ACTIONS.has(action.type)) return navAction(sub, action);
   return withTimeout(
-    chrome.tabs.sendMessage(sub.tabId, { type: MSG.EXECUTE_ACTION, action }),
+    chrome.tabs.sendMessage(sub.tabId, { type: MSG.EXECUTE_ACTION, action, humanize: !!STATE.settings?.humanize }),
     DEFAULTS.iterationTimeoutMs,
     "content-action",
   );
@@ -473,18 +509,43 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
-async function buildRequest(sub, ctx, snapshot) {
+async function buildRequest(sub, ctx, snapshot, visual) {
+  const nerTag = backgroundNerTag(STATE.settings?.perceptionMode !== "eco");
+  if (!sub.goalTokenized) sub.goalTokenized = await tokenizeOutgoing(sub.goal, VAULT, nerTag);
+  const openTabs = await Promise.all(
+    (await getOpenTabs(sub)).map(async (t) => ({ ...t, url: sanitizeUrl(t.url, VAULT), title: await tokenizeOutgoing(t.title || "", VAULT, nerTag) })),
+  );
+  const memoryFacts = await Promise.all(
+    (ctx.memoryFacts ?? []).map(async (f) => (typeof f === "string" ? tokenizeOutgoing(f, VAULT, nerTag) : { ...f, value: await tokenizeOutgoing(String(f.value ?? ""), VAULT, nerTag) })),
+  );
+  const includeImage = !!STATE.settings?.sendScreenshot && !!visual?.redactedImage;
   return {
     contractVersion: CONTRACT_VERSION,
     taskId: ctx.taskId,
-    prompt: sub.goal,
+    prompt: sub.goalTokenized,
     iteration: sub.iteration,
     maxIterations: sub.maxIterations,
-    screenState: snapshot.screenState ?? "unknown",
-    screenStateConfidence: snapshot.screenStateConfidence ?? 0.5,
+    screenState: visual?.screen?.state ?? "unknown",
+    screenStateConfidence: visual?.screen?.confidence ?? 0,
+    // what the on-device vision saw, as non-sensitive labels only
+    visualContext: {
+      screen: visual?.screen ?? null,
+      regions: (visual?.regions ?? []).map((r) => ({ id: r.id, label: r.sensitive ? `${r.label} (redacted)` : r.label, confidence: r.confidence })),
+      facesRedacted: visual?.faces?.length ?? 0,
+      boxCounts: visual?.boxCounts ?? null,
+    },
+    // the scheme the server must understand to use the sanitized context
+    redactionScheme: {
+      version: 2,
+      textTokens: "[TYPE_n] — the same n always denotes the same real value within this task",
+      visual: "opaque black boxes; each box is labelled with its token (e.g. EMAIL_1, FACE, PASSWORD, ID_CARD)",
+      marks: "magenta boxes with a number = interactive element; number N refers to sanitizedDom id n_000N",
+      tokens: VAULT.catalog(),
+      actionsMayUseTokens: true,
+    },
     siteConfigId: snapshot.meta?.siteConfigId ?? "generic",
-    currentUrl: await getCurrentUrl(sub.tabId),
-    openTabs: await getOpenTabs(sub),
+    currentUrl: sanitizeUrl(await getCurrentUrl(sub.tabId), VAULT),
+    openTabs,
     pageMeta: {
       nodeCount: snapshot.sanitizedDom?.length ?? 0,
       loginWall: !!snapshot.meta?.loginWall,
@@ -493,13 +554,12 @@ async function buildRequest(sub, ctx, snapshot) {
       title: snapshot.meta?.title ?? "",
       toasts: snapshot.meta?.toasts ?? [],
     },
-    sendScreenshot: !!snapshot.sendScreenshot,
-    redactedScreenshot: snapshot.sendScreenshot ? snapshot.redactedScreenshot ?? null : null,
+    sendScreenshot: includeImage,
+    redactedScreenshot: includeImage ? visual.redactedImage.slice(visual.redactedImage.indexOf(",") + 1) : null,
     sanitizedDom: snapshot.sanitizedDom ?? [],
     accumulatedData: sub.accumulatedData,
-    // Cross-session facts the user has told the agent to remember. Harmless extra
-    // field if the server prompt doesn't read it yet.
-    memoryFacts: ctx.memoryFacts ?? [],
+    // Cross-session facts the user has told the agent to remember (tokenised).
+    memoryFacts,
     // Outcome of the action taken last turn — lets the model notice a failed guess
     // (wrong element, stale id, non-typeable field) instead of repeating it blind.
     lastActionResult: sub.lastActionResult ?? null,
@@ -550,12 +610,20 @@ function mockStep(sub, reqBody, snapshot) {
 
 async function callServer(sub, ctx, reqBody, snapshot) {
   if (ctx.localOnly) return mockStep(sub, reqBody, snapshot);
+  // fail-closed egress gate: last check of every outgoing string before the network
+  const gated = egressGate(reqBody, VAULT);
+  if (gated.fixes) {
+    STATE.privacy.gateFixes += gated.fixes;
+    subLog(sub, `egress gate rewrote ${gated.fixes} string(s) that still held PII: ${gated.where.join(", ")}`, "warn");
+  }
+  const payload = JSON.stringify(gated.body);
+  STATE.privacy.bytesSent += payload.length;
   try {
     const res = await withTimeout(
       fetch(ctx.serverUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(reqBody),
+        body: payload,
       }),
       DEFAULTS.iterationTimeoutMs,
       "server",
@@ -587,6 +655,8 @@ function mirrorSubToState(sub) {
   STATE.lastRedactionLog = sub.lastRedactionLog;
   STATE.lastVisionMode = sub.lastVisionMode;
   STATE.lastScreenState = sub.lastScreenState;
+  STATE.lastVisual = sub.lastVisual ?? null;
+  STATE.lastRedactedImage = sub.lastRedactedImage ?? null;
   STATE.metrics = sub.metrics;
   STATE.tabId = sub.tabId;
 }
@@ -609,6 +679,14 @@ async function waitWhilePaused(sub, ctx) {
 // (single-agent or Promise.allSettled in multi-agent mode) can await it safely.
 async function runSubLoop(sub, ctx) {
   sub.targetCount = parseTargetCount(sub.goal);
+  // Tokenise the task first: the user's own values (name, phone...) enter the vault
+  // before the first screen is perceived, so they are redacted wherever they appear.
+  try {
+    sub.goalTokenized = await tokenizeOutgoing(sub.goal, VAULT, backgroundNerTag(STATE.settings?.perceptionMode !== "eco"));
+  } catch (e) {
+    subLog(sub, `task tokenisation fell back to rules: ${e.message}`, "warn");
+    sub.goalTokenized = await tokenizeOutgoing(sub.goal, VAULT);
+  }
   let emptyStreak = 0;
   let lastActionSig = null;
   let repeatStreak = 0;
@@ -666,20 +744,18 @@ async function runSubLoop(sub, ctx) {
       subLog(sub, sub.error, "error");
       break;
     }
-    const screenshot = await captureScreenshot(sub);
 
     let snapshot;
+    let visual;
+    let ptimings;
     try {
-      snapshot = await withTimeout(
-        chrome.tabs.sendMessage(sub.tabId, {
-          type: MSG.EXTRACT_SNAPSHOT,
-          screenshot,
-          targetCount: sub.targetCount,
-          collect: false,
-        }),
-        DEFAULTS.iterationTimeoutMs,
-        "content-extract",
-      );
+      ({ snapshot, visual, timings: ptimings } = await perceiveStep({
+        tabId: sub.tabId,
+        windowId: sub.windowId,
+        vault: VAULT,
+        settings: STATE.settings,
+        targetCount: sub.targetCount,
+      }));
     } catch (e) {
       sub.status = STATUS.ERROR;
       sub.error = `perception failed: ${e.message}`;
@@ -692,12 +768,18 @@ async function runSubLoop(sub, ctx) {
       subLog(sub, sub.error, "error");
       break;
     }
+    if (visual?.error) subLog(sub, `vision degraded: ${visual.error}`, "warn");
+    sub.lastVisual = visual && { ...visual, redactedImage: undefined };
+    sub.lastRedactedImage = visual?.redactedImage ?? null;
+    STATE.privacy.boxesPainted += visual?.painted ?? 0;
+    STATE.privacy.tokens = VAULT.size();
+    STATE.vaultCatalog = VAULT.catalog();
 
     // Login wall / persistently empty page → stop with a useful message instead
     // of burning every iteration scrolling nothing.
     const nodeCount = snapshot.sanitizedDom?.length ?? 0;
     const host = hostFromUrl(await getCurrentUrl(sub.tabId)) || "the page";
-    sub.lastThumbnail = snapshot.thumbnail ?? null;
+    sub.lastThumbnail = null;
     // Clear any stale captcha message from a previous iteration now that we have a
     // fresh snapshot — otherwise it lingers in sub.error (and STATE.error) forever
     // after the captcha is solved, wrongly showing up as the reason for any LATER
@@ -744,21 +826,22 @@ async function runSubLoop(sub, ctx) {
     sub.status = STATUS.REDACTING;
     sub.lastRedactionSummary = snapshot.redactionSummary;
     sub.lastRedactionLog = snapshot.redactionLog ?? [];
-    sub.lastVisionMode = snapshot.visionMode;
-    sub.lastScreenState = snapshot.screenState;
+    sub.lastVisionMode = visual?.ep ?? "none";
+    sub.lastScreenState = visual?.screen?.state ?? "unknown";
     subLog(
       sub,
-      `redacted ${snapshot.redactionSummary?.total ?? 0} span(s) across ` +
-        `${snapshot.redactionSummary?.elements ?? 0} element(s); vision=${snapshot.visionMode}; ` +
-        `screen=${snapshot.screenState} (${snapshot.screenStateConfidence}); ` +
-        `visual boxes painted=${snapshot.visualBoxesPainted}`,
+      `redacted ${snapshot.redactionSummary?.total ?? 0} text span(s); ` +
+        `painted ${visual?.painted ?? 0} box(es) [text ${visual?.boxCounts?.text ?? 0}, fields ${visual?.boxCounts?.fields ?? 0}, ` +
+        `faces ${visual?.boxCounts?.faces ?? 0}, images ${visual?.boxCounts?.regions ?? 0}]; ` +
+        `screen=${sub.lastScreenState} (${visual?.screen?.confidence ?? "-"}); ep=${sub.lastVisionMode}` +
+        `${visual?.cacheHit ? " (frame cache hit)" : ""}; perception ${ptimings?.perceptionTotalMs ?? "?"}ms`,
     );
     await ctx.onUpdate();
 
     // REASONING
     sub.status = STATUS.REASONING;
     await ctx.onUpdate();
-    const reqBody = await buildRequest(sub, ctx, snapshot);
+    const reqBody = await buildRequest(sub, ctx, snapshot, visual);
     const serverT0 = performance.now();
     const resp = await callServer(sub, ctx, reqBody, snapshot);
     const serverMs = Math.round(performance.now() - serverT0);
@@ -770,14 +853,23 @@ async function runSubLoop(sub, ctx) {
 
     sub.metrics.iterations.push({
       iteration: sub.iteration,
-      perceiveMs: snapshot.timings?.perceiveMs ?? null,
-      redactMs: snapshot.timings?.redactMs ?? null,
-      visionTotalMs: snapshot.timings?.visionTotalMs ?? null,
-      faceMs: snapshot.timings?.faceMs ?? null,
-      screenMs: snapshot.timings?.screenMs ?? null,
+      domMs: ptimings?.perceiveMs ?? null,
+      textPiiMs: ptimings?.pixelMs ?? null,
+      tokenizeMs: ptimings?.redactMs ?? null,
+      visionMs: ptimings?.analyzeMs ?? null,
+      facesMs: visual?.engineTimings?.facesMs ?? null,
+      clipMs: visual?.engineTimings?.clipMs ?? null,
+      paintMs: ptimings?.redactMs ?? null,
+      perceptionMs: ptimings?.perceptionTotalMs ?? null,
+      cacheHit: !!visual?.cacheHit,
       serverMs,
       totalMs: Math.round(performance.now() - iterT0),
     });
+    try {
+      STATE.engineStats = await perception("stats");
+    } catch {
+      /* engine not up (local-only / restricted page) */
+    }
 
     if (resp.status === "error") {
       sub.status = STATUS.ERROR;
@@ -788,7 +880,9 @@ async function runSubLoop(sub, ctx) {
 
     if (resp.status === "done") {
       mergeAccumulated(sub, resp.extractedItems ?? []);
-      sub.answer = resp.answer ?? "(no answer text)";
+      // the server answered in tokens; real values are restored only for display
+      sub.answerTokenized = resp.answer ?? "(no answer text)";
+      sub.answer = VAULT.resolve(sub.answerTokenized);
       sub.status = STATUS.DONE;
       subLog(sub, `done: ${resp.reasoning ?? ""}`);
       break;
@@ -1035,7 +1129,10 @@ async function fetchPlan(prompt, currentUrl) {
       fetch(DEFAULTS.planServerUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt, currentUrl }),
+        body: JSON.stringify({
+          prompt: await tokenizeOutgoing(prompt, VAULT, backgroundNerTag(STATE.settings?.perceptionMode !== "eco")),
+          currentUrl: sanitizeUrl(currentUrl, VAULT),
+        }),
       }),
       DEFAULTS.iterationTimeoutMs,
       "plan-server",
@@ -1070,7 +1167,15 @@ async function synthesize(ctx, originalPrompt, subAgentResults) {
       fetch(DEFAULTS.synthesizeServerUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ originalPrompt, subAgentResults }),
+        body: JSON.stringify(
+          egressGate(
+            {
+              originalPrompt: await tokenizeOutgoing(originalPrompt, VAULT),
+              subAgentResults: subAgentResults.map((r) => ({ ...r, answer: r.answerTokenized ?? r.answer })),
+            },
+            VAULT,
+          ).body,
+        ),
       }),
       DEFAULTS.iterationTimeoutMs,
       "synthesize-server",
@@ -1081,7 +1186,7 @@ async function synthesize(ctx, originalPrompt, subAgentResults) {
     }
     const data = await res.json();
     if (typeof data?.answer !== "string") throw new Error("synthesize response missing answer");
-    return data.answer;
+    return VAULT.resolve(data.answer);
   } catch (e) {
     log(`synthesize call failed (${e.message}); using local concatenation fallback`, "warn");
     return localSynthesize(originalPrompt, subAgentResults);
@@ -1275,6 +1380,7 @@ async function runMultiAgent(tab) {
   const subAgentResults = subAgents.map((sub) => ({
     goal: sub.goal,
     answer: sub.answer,
+    answerTokenized: sub.answerTokenized,
     extractedItems: sub.accumulatedData,
     error: sub.error,
   }));
@@ -1355,6 +1461,8 @@ async function startTask({ prompt, serverUrl, localOnly, multiAgentEnabled, maxI
   }
 
   STATE = freshState();
+  VAULT = new Vault();
+  STATE.settings = await loadSettings();
   STATE.taskId = crypto.randomUUID();
   STATE.prompt = prompt.trim();
   STATE.serverUrl = serverUrl || DEFAULTS.serverUrl;
@@ -1404,6 +1512,11 @@ async function startTask({ prompt, serverUrl, localOnly, multiAgentEnabled, maxI
   } catch (e) {
     /* not Brave, or API unavailable — fine either way */
   }
+
+  // load models while the planner runs (first run pays model load once)
+  perception("warmup", { keys: STATE.settings.perceptionMode === "eco" ? ["face"] : ["face", "clip", "ner"] })
+    .then((stats) => (STATE.engineStats = stats))
+    .catch((e) => log(`perception warmup failed: ${e.message}`, "warn"));
 
   log(
     `task "${STATE.prompt}" on ${tab.url} (target=${STATE.targetCount || "n/a"}, ` +
@@ -1457,8 +1570,73 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     sendResponse({ type: MSG.STATE_UPDATE, state: STATE });
     return false;
   }
+  if (msg?.type === MSG.PRIVACY_PREVIEW) {
+    privacyPreview(msg.payload ?? {})
+      .then(sendResponse)
+      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+    return true;
+  }
+  if (msg?.type === MSG.WARMUP) {
+    loadSettings()
+      .then((st) => perception("warmup", { keys: st.perceptionMode === "eco" ? ["face"] : ["face", "clip", "ner"] }))
+      .then((stats) => {
+        STATE.engineStats = stats;
+        sendResponse({ ok: true, stats });
+      })
+      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+    return true;
+  }
+  if (msg?.type === MSG.SAVE_SETTINGS) {
+    chrome.storage.local
+      .set({ [SETTINGS_KEY]: msg.payload })
+      .then(() => sendResponse({ ok: true }))
+      .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
   return false;
 });
+
+// "Privacy X-ray": run one perception + redaction pass on the active tab (no server
+// call) and return exactly what WOULD leave the device, plus geometry in CSS px for
+// the eval harness. Uses a throwaway vault so it never disturbs a running task.
+async function privacyPreview({ tabId, mode }) {
+  let tab;
+  if (tabId) tab = await chrome.tabs.get(tabId);
+  else [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab?.id) return { ok: false, error: "no active tab" };
+  if (!(await ensureContentScript(tab.id))) return { ok: false, error: "cannot access this page" };
+  const settings = { ...(await loadSettings()), ...(mode ? { perceptionMode: mode } : {}) };
+  const vault = new Vault();
+  const t0 = performance.now();
+  const { snapshot, visual, timings } = await perceiveStep({ tabId: tab.id, windowId: tab.windowId, vault, settings, targetCount: 0 });
+  if (!snapshot?.ok) return { ok: false, error: snapshot?.error ?? "perception failed" };
+  const scale = snapshot.viewport.dpr || 1;
+  const css = (b) => ({ x: b.x / scale, y: b.y / scale, w: b.w / scale, h: b.h / scale });
+  const stats = await perception("stats").catch(() => null);
+  return {
+    ok: true,
+    totalMs: Math.round(performance.now() - t0),
+    timings,
+    viewport: snapshot.viewport,
+    redactedImage: visual?.redactedImage ?? null,
+    redactedBytes: visual?.redactedBytes ?? 0,
+    screen: visual?.screen ?? null,
+    regions: visual?.regions ?? [],
+    boxCounts: visual?.boxCounts ?? null,
+    cacheHit: !!visual?.cacheHit,
+    visionError: visual?.error ?? null,
+    boxes: [
+      ...snapshot.piiBoxes.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, type: b.type, label: b.label, source: b.source })),
+      ...(visual?.faces ?? []).map((f) => ({ ...css(f), type: "FACE", source: f.via })),
+    ],
+    sensitiveRegions: (visual?.regions ?? []).filter((r) => r.sensitive).map((r) => r.id),
+    rois: snapshot.rois,
+    sanitizedDom: snapshot.sanitizedDom,
+    redactionSummary: snapshot.redactionSummary,
+    tokens: vault.catalog(),
+    engine: stats,
+  };
+}
 
 const TERMINAL_STATUSES = new Set([STATUS.IDLE, STATUS.DONE, STATUS.ERROR]);
 
