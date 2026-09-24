@@ -3,6 +3,8 @@
 //
 // Runs inside the content script (needs a real `document`).
 
+import { isSensitiveField } from "./fieldSensitivity.js";
+
 const AGENT_ID_ATTR = "data-agent-id";
 const TEXT_LIMIT = 300;
 let idCounter = 0;
@@ -126,6 +128,13 @@ function cleanText(s) {
   return (s || "").replace(/\s+/g, " ").trim().slice(0, TEXT_LIMIT);
 }
 
+// innerText honours <br> and block boundaries ("Rohan Mehta\nHouse No. 12");
+// textContent would glue them into "Rohan MehtaHouse No. 12".
+function visibleText(el) {
+  const t = el.innerText;
+  return cleanText(typeof t === "string" ? t.replace(/\n+/g, " · ") : el.textContent);
+}
+
 function extractFormFieldText(el) {
   const parts = [];
 
@@ -172,8 +181,10 @@ function extractFormFieldText(el) {
     parts.push(`placeholder: "${cleanText(placeholder)}"`);
   }
 
-  if (el.value && el.type !== "password") {
-    parts.push(`value: "${cleanText(el.value)}"`);
+  if (el.value) {
+    // sensitive fields (password, card, CVV, OTP, Aadhaar...) only say THAT they are
+    // filled; the value never enters the payload, not even tokenised
+    parts.push(isSensitiveField(el) ? "value: <filled, hidden on device>" : `value: "${cleanText(el.value)}"`);
   }
 
   const isRequired = el.required || el.hasAttribute("required") || el.getAttribute("aria-required") === "true";
@@ -304,10 +315,10 @@ export function extractSnapshot(siteConfig) {
     if (tag === "input" || tag === "textarea" || tag === "select") {
       text = extractFormFieldText(el);
     } else if (hasFieldConfig) {
-      text = firstText(el, cfg.fields.text) || cleanText(el.textContent);
+      text = firstText(el, cfg.fields.text) || visibleText(el);
     } else {
       text =
-        cleanText(el.textContent) ||
+        visibleText(el) ||
         cleanText(el.getAttribute("aria-label") || el.getAttribute("title") || el.value || (tag === "img" ? el.alt : "") || "");
     }
 
@@ -369,6 +380,11 @@ export function extractSnapshot(siteConfig) {
     nodes.push(node);
   }
 
+  // Generic pages keep much of their content in div/span/td/dd text that no item
+  // selector names. Add every visible text block not already covered, then restore
+  // reading order, so the server sees what the user sees (visual-context accuracy).
+  if (cfg.id === "generic") addTextBlocks(nodes, seenEls);
+
   return {
     nodes,
     meta: {
@@ -386,6 +402,77 @@ export function extractSnapshot(siteConfig) {
       viewport: { w: window.innerWidth, h: window.innerHeight },
     },
   };
+}
+
+const TEXT_BLOCK_LIMIT = 200;
+const blockDisplay = new WeakMap();
+function isBlock(el) {
+  let v = blockDisplay.get(el);
+  if (v === undefined) {
+    const d = getComputedStyle(el).display;
+    v = !d.startsWith("inline") && d !== "contents";
+    blockDisplay.set(el, v);
+  }
+  return v;
+}
+
+function addTextBlocks(nodes, extractedEls) {
+  const covered = (el) => {
+    for (let cur = el; cur && cur !== document.body; cur = cur.parentElement) if (extractedEls.has(cur)) return true;
+    return false;
+  };
+  const blocks = new Map();
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.data && /\S/.test(n.data) && n.parentElement && !/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|OPTION)$/.test(n.parentElement.tagName) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+  });
+  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+    const p = t.parentElement;
+    if (covered(p)) continue;
+    let b = p;
+    while (b && b !== document.body && !isBlock(b)) b = b.parentElement;
+    if (!b || b === document.body || covered(b)) continue;
+    if (!blocks.has(b)) blocks.set(b, true);
+  }
+  let added = 0;
+  const entries = nodes.map((n) => ({ n, el: document.querySelector(`[${AGENT_ID_ATTR}="${n.id}"]`) }));
+  for (const b of blocks.keys()) {
+    if (added >= TEXT_BLOCK_LIMIT) break;
+    const rect = b.getBoundingClientRect();
+    if (!inViewport(rect)) continue;
+    // own text only: skip text belonging to nested blocks (they become their own nodes)
+    let text = "";
+    const w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+    for (let t = w.nextNode(); t; t = w.nextNode()) {
+      let owner = t.parentElement;
+      while (owner && owner !== b && !isBlock(owner)) owner = owner.parentElement;
+      if (owner === b && !/^(SCRIPT|STYLE|NOSCRIPT|OPTION)$/.test(t.parentElement.tagName)) {
+        if (t.previousSibling?.nodeName === "BR" || t.parentElement.previousElementSibling?.nodeName === "BR") text += " · ";
+        text += t.data;
+      }
+    }
+    text = cleanText(text);
+    if (!text || text.length < 2) continue;
+    let id = b.getAttribute(AGENT_ID_ATTR);
+    if (!id) {
+      id = nextId();
+      b.setAttribute(AGENT_ID_ATTR, id);
+    }
+    const node = {
+      id,
+      role: "text",
+      text,
+      rect: { x: Math.round(rect.x), y: Math.round(rect.y + window.scrollY), w: Math.round(rect.width), h: Math.round(rect.height) },
+      interactive: isInteractive(b),
+    };
+    entries.push({ n: node, el: b });
+    added++;
+  }
+  entries.sort((a, b) => {
+    if (!a.el || !b.el || a.el === b.el) return 0;
+    return a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+  });
+  nodes.length = 0;
+  for (const e of entries) nodes.push(e.n);
 }
 
 /** Heuristic: is the page a sign-in gate rather than real content? */
@@ -416,8 +503,16 @@ export function detectLoginWall() {
     const signInCta = /log in|sign up|see what.?s happening/i.test(document.body?.innerText || "");
     if (timeline === 0 && signInCta) return true;
   }
+  // a sign-in gate = password + at most a username field, on an otherwise thin page;
+  // a password field inside a bigger form (KYC confirm, checkout) is not a wall
   const bodyLen = (document.body?.innerText || "").length;
-  if (document.querySelector('input[type="password"]') && bodyLen < 1800) return true;
+  const pw = document.querySelector('input[type="password"]');
+  if (pw && bodyLen < 1800) {
+    const otherFields = [...document.querySelectorAll("input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]), select, textarea")].filter(
+      (el) => el.type !== "password",
+    ).length;
+    if (otherFields <= 2) return true;
+  }
   return false;
 }
 
