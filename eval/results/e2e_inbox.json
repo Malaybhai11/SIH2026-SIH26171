@@ -1,0 +1,195 @@
+{
+  "task": "inbox",
+  "prompt": "What is the OTP that Bharat Digital Bank sent me?",
+  "status": "DONE",
+  "answer": "The OTP is 482913.",
+  "error": null,
+  "passed": true,
+  "outcome": null,
+  "wallMs": 5787,
+  "steps": [
+    {
+      "iteration": 1,
+      "domMs": 25,
+      "textPiiMs": 852,
+      "tokenizeMs": 147,
+      "visionMs": 2049,
+      "facesMs": 477,
+      "clipMs": 1468,
+      "paintMs": 147,
+      "perceptionMs": 3376,
+      "cacheHit": false,
+      "serverMs": 1285,
+      "totalMs": 4793
+    }
+  ],
+  "serverSaw": {
+    "prompt": "What is the OTP that Bharat Digital Bank sent me?",
+    "tokens": [
+      {
+        "token": "[EMAIL_1]",
+        "type": "EMAIL"
+      },
+      {
+        "token": "[NAME_1]",
+        "type": "NAME"
+      },
+      {
+        "token": "[PHONE_1]",
+        "type": "PHONE"
+      },
+      {
+        "token": "[OTP_1]",
+        "type": "OTP"
+      },
+      {
+        "token": "[NAME_2]",
+        "type": "NAME"
+      },
+      {
+        "token": "[LOCATION_1]",
+        "type": "LOCATION"
+      },
+      {
+        "token": "[UPI_1]",
+        "type": "UPI"
+      },
+      {
+        "token": "[NAME_3]",
+        "type": "NAME"
+      },
+      {
+        "token": "[GSTIN_1]",
+        "type": "GSTIN"
+      },
+      {
+        "token": "[NAME_4]",
+        "type": "NAME"
+      }
+    ],
+    "visualContext": {
+      "screen": {
+        "state": "email_inbox",
+        "category": "social",
+        "confidence": 0.763,
+        "probs": [
+          {
+            "id": "email_inbox",
+            "p": 0.763
+          },
+          {
+            "id": "signup_form",
+            "p": 0.064
+          },
+          {
+            "id": "search_results",
+            "p": 0.036
+          }
+        ],
+        "pixelsOnly": "signup_form",
+        "cues": [
+          "login",
+          "email_inbox"
+        ]
+      },
+      "regions": [
+        {
+          "id": "n_0002",
+          "label": "face_photo (redacted)",
+          "confidence": 1
+        },
+        {
+          "id": "n_0003",
+          "label": "face_photo (redacted)",
+          "confidence": 1
+        },
+        {
+          "id": "n_0004",
+          "label": "face_photo (redacted)",
+          "confidence": 1
+        }
+      ],
+      "facesRedacted": 3,
+      "boxCounts": {
+        "text": 9,
+        "fields": 0,
+        "faces": 3,
+        "regions": 3
+      }
+    }
+  },
+  "leakCheck": {
+    "secretsChecked": 6,
+    "leaked": [],
+    "requestsInspected": 1
+  },
+  "privacy": {
+    "gateFixes": 1,
+    "boxesPainted": 15,
+    "tokens": 10,
+    "bytesSent": 80113
+  },
+  "engine": {
+    "ep": "wasm",
+    "models": {
+      "face": {
+        "bytes": 232589,
+        "loadMs": 2960,
+        "ep": "wasm"
+      },
+      "clip": {
+        "bytes": 22876479,
+        "loadMs": 2956,
+        "ep": "wasm"
+      },
+      "ner": {
+        "bytes": 28748527,
+        "loadMs": 2956,
+        "ep": "wasm"
+      }
+    },
+    "calls": {
+      "ner": {
+        "n": 5,
+        "totalMs": 1291.7800000309944,
+        "lastMs": 34
+      },
+      "faces": {
+        "n": 1,
+        "totalMs": 475.01500000059605,
+        "lastMs": 475
+      },
+      "clip": {
+        "n": 1,
+        "totalMs": 1468.1650000065565,
+        "lastMs": 1468
+      },
+      "redact": {
+        "n": 1,
+        "totalMs": 124.85499998927116,
+        "lastMs": 125
+      }
+    },
+    "cache": {
+      "frame": 0,
+      "region": 0,
+      "ner": 19
+    },
+    "threads": 4,
+    "lastNerStrings": 1,
+    "lastClipBatch": 1,
+    "modelMB": 51.9,
+    "memory": {
+      "jsHeapUsedMB": 71.9,
+      "jsHeapTotalMB": 77.3
+    }
+  },
+  "log": [
+    "task \"What is the OTP that Bharat Digital Bank sent me?\" on http://localhost:8000/demo/inbox.html (target=n/a, localOnly=false, multiAgent=false)",
+    "plan: 1 subtask(s) — single-agent mode",
+    "--- iteration 1/12 ---",
+    "redacted 9 text span(s); painted 15 box(es) [text 9, fields 0, faces 3, images 3]; screen=email_inbox (0.763); ep=wasm; perception 3376ms",
+    "egress gate rewrote 1 string(s) that still held PII: sanitizedDom[0].text",
+    "done: The email from Bharat Digital Bank contains the OTP token [OTP_1]."
+  ]
+}

@@ -1,0 +1,235 @@
+{
+  "task": "register",
+  "prompt": "Register me for the Space Science Outreach event. My name is Priya Sharma, email priya.sharma@gmail.com, phone 9876543210, I live in Ahmedabad. Category Student, institution Gujarat University. Tick the consent box and submit.",
+  "status": "DONE",
+  "answer": "Your registration has been submitted successfully.",
+  "error": null,
+  "passed": true,
+  "outcome": {
+    "fullname": "Priya Sharma",
+    "email": "priya.sharma@gmail.com",
+    "phone": "9876543210",
+    "city": "Ahmedabad",
+    "category": "Student",
+    "consent": true,
+    "submitted": true
+  },
+  "wallMs": 17197,
+  "steps": [
+    {
+      "iteration": 1,
+      "domMs": 32,
+      "textPiiMs": 1680,
+      "tokenizeMs": 139,
+      "visionMs": 2720,
+      "facesMs": 337,
+      "clipMs": 2172,
+      "paintMs": 139,
+      "perceptionMs": 5363,
+      "cacheHit": false,
+      "serverMs": 2425,
+      "totalMs": 7907
+    },
+    {
+      "iteration": 2,
+      "domMs": 2,
+      "textPiiMs": 3,
+      "tokenizeMs": 46,
+      "visionMs": 36,
+      "facesMs": null,
+      "clipMs": null,
+      "paintMs": 46,
+      "perceptionMs": 256,
+      "cacheHit": true,
+      "serverMs": 1827,
+      "totalMs": 2139
+    },
+    {
+      "iteration": 3,
+      "domMs": 4,
+      "textPiiMs": 8,
+      "tokenizeMs": 50,
+      "visionMs": 35,
+      "facesMs": null,
+      "clipMs": null,
+      "paintMs": 50,
+      "perceptionMs": 205,
+      "cacheHit": true,
+      "serverMs": 1572,
+      "totalMs": 1835
+    },
+    {
+      "iteration": 4,
+      "domMs": 2,
+      "textPiiMs": 3,
+      "tokenizeMs": 34,
+      "visionMs": 20,
+      "facesMs": null,
+      "clipMs": null,
+      "paintMs": 34,
+      "perceptionMs": 108,
+      "cacheHit": true,
+      "serverMs": 1334,
+      "totalMs": 1492
+    },
+    {
+      "iteration": 5,
+      "domMs": 1,
+      "textPiiMs": 20,
+      "tokenizeMs": 36,
+      "visionMs": 52,
+      "facesMs": null,
+      "clipMs": null,
+      "paintMs": 36,
+      "perceptionMs": 272,
+      "cacheHit": true,
+      "serverMs": 1201,
+      "totalMs": 1525
+    }
+  ],
+  "serverSaw": {
+    "prompt": "Register me for the Space Science Outreach event. My name is [NAME_1], email [EMAIL_1], phone [PHONE_1], I live in [LOCATION_1]. Category Student, institution Gujarat University. Tick the consent box and submit.",
+    "tokens": [
+      {
+        "token": "[NAME_1]",
+        "type": "NAME"
+      },
+      {
+        "token": "[EMAIL_1]",
+        "type": "EMAIL"
+      },
+      {
+        "token": "[PHONE_1]",
+        "type": "PHONE"
+      },
+      {
+        "token": "[LOCATION_1]",
+        "type": "LOCATION"
+      }
+    ],
+    "visualContext": {
+      "screen": {
+        "state": "signup_form",
+        "category": "form",
+        "confidence": 0.999,
+        "probs": [
+          {
+            "id": "signup_form",
+            "p": 0.999
+          },
+          {
+            "id": "error_captcha",
+            "p": 0.001
+          },
+          {
+            "id": "banking",
+            "p": 0
+          }
+        ],
+        "pixelsOnly": "signup_form",
+        "cues": [
+          "signup_form"
+        ]
+      },
+      "regions": [
+        {
+          "id": "n_0005",
+          "label": "chart",
+          "confidence": 0.999
+        }
+      ],
+      "facesRedacted": 0,
+      "boxCounts": {
+        "text": 1,
+        "fields": 4,
+        "faces": 0,
+        "regions": 0
+      }
+    }
+  },
+  "leakCheck": {
+    "secretsChecked": 4,
+    "leaked": [],
+    "requestsInspected": 5
+  },
+  "privacy": {
+    "gateFixes": 0,
+    "boxesPainted": 21,
+    "tokens": 4,
+    "bytesSent": 458187
+  },
+  "engine": {
+    "ep": "wasm",
+    "models": {
+      "face": {
+        "bytes": 232589,
+        "loadMs": 1745,
+        "ep": "wasm"
+      },
+      "clip": {
+        "bytes": 22876479,
+        "loadMs": 2839,
+        "ep": "wasm"
+      },
+      "ner": {
+        "bytes": 28748527,
+        "loadMs": 3331,
+        "ep": "wasm"
+      }
+    },
+    "calls": {
+      "ner": {
+        "n": 9,
+        "totalMs": 2967.6350000202656,
+        "lastMs": 42
+      },
+      "faces": {
+        "n": 1,
+        "totalMs": 335.7800000011921,
+        "lastMs": 336
+      },
+      "clip": {
+        "n": 1,
+        "totalMs": 2172,
+        "lastMs": 2172
+      },
+      "redact": {
+        "n": 5,
+        "totalMs": 249.94000001251698,
+        "lastMs": 28
+      }
+    },
+    "cache": {
+      "frame": 4,
+      "region": 0,
+      "ner": 171
+    },
+    "threads": 4,
+    "lastNerStrings": 2,
+    "lastClipBatch": 2,
+    "modelMB": 51.9,
+    "memory": {
+      "jsHeapUsedMB": 13,
+      "jsHeapTotalMB": 15.1
+    }
+  },
+  "log": [
+    "task \"Register me for the Space Science Outreach event. My name is Priya Sharma, email priya.sharma@gmail.com, phone 9876543210, I live in Ahmedabad. Category Student, institution Gujarat University. Tick the consent box and submit.\" on http://localhost:8000/demo/register.html (target=n/a, localOnly=false, multiAgent=false)",
+    "plan: 1 subtask(s) — single-agent mode",
+    "--- iteration 1/12 ---",
+    "redacted 1 text span(s); painted 1 box(es) [text 1, fields 0, faces 0, images 0]; screen=signup_form (0.999); ep=wasm; perception 5363ms",
+    "server → fill_form  (Fill all required text fields with the provided tokens and institution name.)",
+    "--- iteration 2/12 ---",
+    "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 256ms",
+    "server → select n_0011 (Select the Category field value 'Student' before checking consent and submitting.)",
+    "--- iteration 3/12 ---",
+    "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 205ms",
+    "server → check n_0014 (Consent checkbox is required and currently unchecked; checking it will allow submission.)",
+    "--- iteration 4/12 ---",
+    "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 108ms",
+    "server → click n_0015 (All required fields are prefilled and the consent box is checked, so click the Register button to submit the form.)",
+    "--- iteration 5/12 ---",
+    "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 272ms",
+    "done: All required fields are filled, consent is checked, and the Register button click produced a success toast."
+  ]
+}
