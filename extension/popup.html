@@ -3,11 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="popup.css" />
-    <title>Privacy-Preserving Browser Agent</title>
+    <title>Aavaran — Private Browser Agent</title>
   </head>
   <body>
     <header>
-      <h1>Browser Agent</h1>
+      <h1>Aavaran <span class="sub">private browser agent</span></h1>
       <span id="status" class="badge">IDLE</span>
     </header>
 
@@ -34,15 +34,31 @@
       <textarea
         id="prompt"
         rows="2"
-        placeholder="e.g. Go to x.com and find the top 10 Elon Musk posts and summarize them"
+        placeholder="e.g. Register me for this event — my name is Priya Sharma, phone 9876543210"
       ></textarea>
       <div class="controls">
         <label class="opt"
           ><input type="checkbox" id="localOnly" /> Local-only (no server)</label
         >
         <label class="opt"
-          ><input type="checkbox" id="multiAgent" checked /> Multi-agent mode</label
+          ><input type="checkbox" id="multiAgent" /> Multi-agent mode</label
         >
+        <div class="settings-row">
+          <label class="opt" title="eco: faces + text rules only · balanced: + NER + MobileCLIP screen/regions (cached) · max: everything, every frame"
+            >Perception
+            <select id="perceptionMode">
+              <option value="eco">eco</option>
+              <option value="balanced" selected>balanced</option>
+              <option value="max">max</option>
+            </select></label
+          >
+          <label class="opt" title="Attach the redacted, Set-of-Marks screenshot for a vision LLM"
+            ><input type="checkbox" id="sendScreenshot" checked /> Send redacted screenshot</label
+          >
+          <label class="opt" title="Simulate human pointer/keystroke timing (slower)"
+            ><input type="checkbox" id="humanize" /> Humanize input</label
+          >
+        </div>
         <input id="serverUrl" type="text" value="http://localhost:8000/agent/step" />
         <label class="opt"
           >Max iterations
@@ -80,6 +96,7 @@
       <button id="tabNotes" class="tab-btn" data-tab="notes" hidden>
         Notes <span id="notesCount" class="pill">0</span>
       </button>
+      <button id="tabPrivacy" class="tab-btn" data-tab="privacy">Privacy X-ray</button>
       <button id="tabRedact" class="tab-btn" data-tab="redact">
         Redaction <span id="redactCount" class="pill">0</span>
       </button>
@@ -99,11 +116,11 @@
 
       <div class="chip-group-label small muted">Try:</div>
       <div id="chips" class="chips">
-        <button class="chip" type="button">Find the top 5 trending repos on GitHub</button>
-        <button class="chip" type="button">Summarize the top posts on Hacker News</button>
-        <button class="chip" type="button">Search Wikipedia for the history of the internet</button>
-        <button class="chip" type="button">Find today's top headlines on a news site</button>
-        <button class="chip" type="button">Look up the weather forecast for this week</button>
+        <button class="chip" type="button">Register me for this event. My name is Priya Sharma, email priya.sharma@gmail.com, phone 9876543210, I live in Ahmedabad. Category Student. Tick consent and submit.</button>
+        <button class="chip" type="button">What is the OTP that Bharat Digital Bank sent me?</button>
+        <button class="chip" type="button">Update my KYC: occupation Salaried, annual income 10–25 lakh, then submit.</button>
+        <button class="chip" type="button">Summarise what people are posting about on this feed.</button>
+        <button class="chip" type="button">What is my order total and where is it being delivered?</button>
       </div>
 
       <div id="templateChipsGroup" class="chip-group-label small muted" hidden>Saved:</div>
@@ -120,6 +137,14 @@
 
     <section class="panel" id="notesPanel" hidden>
       <div id="notesBody" class="small"></div>
+    </section>
+
+    <section class="panel" id="privacyPanel" hidden>
+      <div class="xray-head">
+        <button id="previewBtn" type="button">Preview this page</button>
+        <span id="previewInfo" class="small muted">What the server would receive — computed on this device, no network call.</span>
+      </div>
+      <div id="xray" class="small"></div>
     </section>
 
     <section class="panel" id="redactPanel" hidden>
