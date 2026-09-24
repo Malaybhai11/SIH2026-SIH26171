@@ -1,7 +1,12 @@
 """LLM step decider.
 
 Providers (selected via LLM_PROVIDER, or auto-detected from which key is present):
-  - "inception" : Inception Labs Mercury 2 (diffusion LLM, OpenAI-compatible, very fast)
+  - "vlm"       : ANY OpenAI-compatible endpoint serving an open-weights model — the
+                  default for SIH (offline-deployable). Qwen2.5-VL / Llama-4-Scout /
+                  Gemma-3 via vLLM, Ollama, LM Studio, or cloud hosts (OpenRouter, Groq,
+                  Together). Receives the REDACTED, Set-of-Marks screenshot as an image.
+                  Env: VLM_BASE_URL, VLM_MODEL, VLM_API_KEY (optional), VLM_IMAGES=1|0
+  - "inception" : Inception Labs Mercury 2 (text-only diffusion LLM, OpenAI-compatible)
   - "anthropic" : Claude with structured output
   - "mock"      : deterministic mock stepper (no key / MOCK_LLM=1) so the pipeline
                   runs fully offline
@@ -57,6 +62,11 @@ _INCEPTION_MODEL = os.environ.get("INCEPTION_MODEL", "mercury-2")
 
 _ANTHROPIC_MODEL = os.environ.get("AGENT_MODEL", "claude-opus-5")
 
+_VLM_BASE = os.environ.get("VLM_BASE_URL", "").rstrip("/")
+_VLM_MODEL = os.environ.get("VLM_MODEL", "qwen2.5vl:7b")
+_VLM_KEY = os.environ.get("VLM_API_KEY", "")
+_VLM_IMAGES = os.environ.get("VLM_IMAGES", "1").lower() not in {"0", "false", "no"}
+
 _ACTION_KEYS = ("type", "targetId", "url", "amount", "text", "ms", "index", "value", "checked", "key", "fields")
 _ACTION_TYPES = {
     "click", "scroll", "type", "wait", "extract", "navigate", "open_tab", "switch_tab", "back",
@@ -68,8 +78,10 @@ _ACTION_TYPES = {
 def resolve_provider() -> str:
     if _FORCE_MOCK:
         return "mock"
-    if _PROVIDER in {"inception", "anthropic", "mock"}:
+    if _PROVIDER in {"vlm", "inception", "anthropic", "mock"}:
         return _PROVIDER
+    if _VLM_BASE:
+        return "vlm"
     if _INCEPTION_KEY:
         return "inception"
     if os.environ.get("ANTHROPIC_API_KEY") or (Path.home() / ".config/anthropic").exists():
@@ -79,7 +91,74 @@ def resolve_provider() -> str:
 
 def engine_label() -> str:
     p = resolve_provider()
-    return {"inception": _INCEPTION_MODEL, "anthropic": _ANTHROPIC_MODEL, "mock": "mock"}[p]
+    return {"vlm": _VLM_MODEL, "inception": _INCEPTION_MODEL, "anthropic": _ANTHROPIC_MODEL, "mock": "mock"}[p]
+
+
+def provider_info() -> dict:
+    p = resolve_provider()
+    return {
+        "provider": p,
+        "engine": engine_label(),
+        "seesImages": p == "vlm" and _VLM_IMAGES,
+        "openWeights": p in {"vlm", "mock"},
+    }
+
+
+# ------------------------------------------------------------- OpenAI-compatible core
+def _extract_json(content: str) -> Any:
+    """Models without strict JSON mode sometimes wrap output in prose / code fences."""
+    try:
+        return json.loads(content)
+    except Exception:
+        m = re.search(r"\{.*\}", content, re.S)
+        if not m:
+            raise
+        return json.loads(m.group(0))
+
+
+def _chat_json(base: str, key: str, model: str, system: str, user_text: str, schema_name: str,
+               schema: dict, validate, image_b64: str | None = None) -> dict:
+    """One OpenAI-compatible chat call constrained to `schema`, one retry-with-correction.
+    Falls back from json_schema -> json_object -> plain for servers that lack them."""
+    import httpx
+
+    user_content: Any = user_text
+    if image_b64:
+        user_content = [
+            {"type": "text", "text": user_text},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+        ]
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user_content}]
+    formats = [
+        {"type": "json_schema", "json_schema": {"name": schema_name, "strict": False, "schema": schema}},
+        {"type": "json_object"},
+        None,
+    ]
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    last_err: Exception | None = None
+    with httpx.Client(timeout=60.0) as http:
+        fmt_i = 0
+        for attempt in range(3):
+            body: dict[str, Any] = {"model": model, "temperature": 0, "messages": messages}
+            if formats[fmt_i]:
+                body["response_format"] = formats[fmt_i]
+            r = http.post(f"{base}/chat/completions", headers=headers, json=body)
+            if r.status_code == 400 and fmt_i < len(formats) - 1 and "response_format" in r.text:
+                fmt_i += 1  # server doesn't support this JSON mode — degrade and retry
+                continue
+            r.raise_for_status()
+            content = r.json()["choices"][0]["message"]["content"] or ""
+            try:
+                data = _extract_json(content)
+                validate(data)
+                return data
+            except Exception as e:  # retry-with-correction
+                last_err = e
+                messages = messages[:2] + [
+                    {"role": "assistant", "content": content},
+                    {"role": "user", "content": f"That was invalid ({e}). Return ONLY valid JSON matching the schema."},
+                ]
+    raise ValueError(f"{model} output failed validation: {last_err}")
 
 
 # --------------------------------------------------------------------------- shared
@@ -198,43 +277,17 @@ def mock_step(req: dict) -> dict:
 
 # ---------------------------------------------------------------------- inception
 def _inception_step(req: dict) -> dict:
-    import httpx
+    data = _chat_json(_INCEPTION_BASE, _INCEPTION_KEY, _INCEPTION_MODEL, SYSTEM, build_user_message(req),
+                      "agent_step", _SCHEMA, _validate)
+    return _finalize(data)
 
-    messages = [
-        {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": build_user_message(req)},
-    ]
-    body = {
-        "model": _INCEPTION_MODEL,
-        "temperature": 0,
-        "messages": messages,
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {"name": "agent_step", "strict": False, "schema": _SCHEMA},
-        },
-    }
 
-    last_err = None
-    with httpx.Client(timeout=30.0) as http:
-        for _ in range(2):
-            r = http.post(
-                f"{_INCEPTION_BASE}/chat/completions",
-                headers={"Authorization": f"Bearer {_INCEPTION_KEY}"},
-                json=body,
-            )
-            r.raise_for_status()
-            content = r.json()["choices"][0]["message"]["content"]
-            try:
-                data = json.loads(content)
-                _validate(data)
-                return _finalize(data)
-            except Exception as e:  # one retry-with-correction
-                last_err = e
-                body["messages"] = messages + [
-                    {"role": "assistant", "content": content},
-                    {"role": "user", "content": f"That was invalid ({e}). Return ONLY valid JSON matching the schema."},
-                ]
-    raise ValueError(f"Mercury output failed validation twice: {last_err}")
+# ---------------------------------------------------------------- open-weights VLM
+def _vlm_step(req: dict) -> dict:
+    image = req.get("redactedScreenshot") if (_VLM_IMAGES and req.get("sendScreenshot")) else None
+    data = _chat_json(_VLM_BASE, _VLM_KEY, _VLM_MODEL, SYSTEM, build_user_message(req, has_image=bool(image)),
+                      "agent_step", _SCHEMA, _validate, image_b64=image)
+    return _finalize(data)
 
 
 # ---------------------------------------------------------------------- anthropic
@@ -268,7 +321,7 @@ def _anthropic_step(req: dict) -> dict:
 
 
 # ------------------------------------------------------------------------- public
-_STEP_FNS = {"inception": _inception_step, "anthropic": _anthropic_step, "mock": mock_step}
+_STEP_FNS = {"vlm": _vlm_step, "inception": _inception_step, "anthropic": _anthropic_step, "mock": mock_step}
 
 
 def decide_step(req: dict) -> tuple[dict, str]:
@@ -304,43 +357,13 @@ def mock_plan(req: dict) -> dict:
 
 
 def _inception_plan(req: dict) -> dict:
-    import httpx
+    return _chat_json(_INCEPTION_BASE, _INCEPTION_KEY, _INCEPTION_MODEL, _PLAN_SYSTEM, _build_plan_message(req),
+                      "agent_plan", _PLAN_SCHEMA, _validate_plan)
 
-    messages = [
-        {"role": "system", "content": _PLAN_SYSTEM},
-        {"role": "user", "content": _build_plan_message(req)},
-    ]
-    body = {
-        "model": _INCEPTION_MODEL,
-        "temperature": 0,
-        "messages": messages,
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {"name": "agent_plan", "strict": False, "schema": _PLAN_SCHEMA},
-        },
-    }
 
-    last_err = None
-    with httpx.Client(timeout=30.0) as http:
-        for _ in range(2):
-            r = http.post(
-                f"{_INCEPTION_BASE}/chat/completions",
-                headers={"Authorization": f"Bearer {_INCEPTION_KEY}"},
-                json=body,
-            )
-            r.raise_for_status()
-            content = r.json()["choices"][0]["message"]["content"]
-            try:
-                data = json.loads(content)
-                _validate_plan(data)
-                return data
-            except Exception as e:  # one retry-with-correction
-                last_err = e
-                body["messages"] = messages + [
-                    {"role": "assistant", "content": content},
-                    {"role": "user", "content": f"That was invalid ({e}). Return ONLY valid JSON matching the schema."},
-                ]
-    raise ValueError(f"Mercury output failed validation twice: {last_err}")
+def _vlm_plan(req: dict) -> dict:
+    return _chat_json(_VLM_BASE, _VLM_KEY, _VLM_MODEL, _PLAN_SYSTEM, _build_plan_message(req),
+                      "agent_plan", _PLAN_SCHEMA, _validate_plan)
 
 
 def _anthropic_plan(req: dict) -> dict:
@@ -372,7 +395,7 @@ def _anthropic_plan(req: dict) -> dict:
     raise ValueError(f"LLM output failed validation twice: {last_err}")
 
 
-_PLAN_FNS = {"inception": _inception_plan, "anthropic": _anthropic_plan, "mock": mock_plan}
+_PLAN_FNS = {"vlm": _vlm_plan, "inception": _inception_plan, "anthropic": _anthropic_plan, "mock": mock_plan}
 
 
 def decide_plan(req: dict) -> tuple[dict, str]:
@@ -412,43 +435,13 @@ def mock_synthesize(req: dict) -> dict:
 
 
 def _inception_synthesize(req: dict) -> dict:
-    import httpx
+    return _chat_json(_INCEPTION_BASE, _INCEPTION_KEY, _INCEPTION_MODEL, _SYNTH_SYSTEM, _build_synth_message(req),
+                      "agent_synthesize", _SYNTH_SCHEMA, _validate_synthesize)
 
-    messages = [
-        {"role": "system", "content": _SYNTH_SYSTEM},
-        {"role": "user", "content": _build_synth_message(req)},
-    ]
-    body = {
-        "model": _INCEPTION_MODEL,
-        "temperature": 0,
-        "messages": messages,
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {"name": "agent_synthesize", "strict": False, "schema": _SYNTH_SCHEMA},
-        },
-    }
 
-    last_err = None
-    with httpx.Client(timeout=30.0) as http:
-        for _ in range(2):
-            r = http.post(
-                f"{_INCEPTION_BASE}/chat/completions",
-                headers={"Authorization": f"Bearer {_INCEPTION_KEY}"},
-                json=body,
-            )
-            r.raise_for_status()
-            content = r.json()["choices"][0]["message"]["content"]
-            try:
-                data = json.loads(content)
-                _validate_synthesize(data)
-                return data
-            except Exception as e:  # one retry-with-correction
-                last_err = e
-                body["messages"] = messages + [
-                    {"role": "assistant", "content": content},
-                    {"role": "user", "content": f"That was invalid ({e}). Return ONLY valid JSON matching the schema."},
-                ]
-    raise ValueError(f"Mercury output failed validation twice: {last_err}")
+def _vlm_synthesize(req: dict) -> dict:
+    return _chat_json(_VLM_BASE, _VLM_KEY, _VLM_MODEL, _SYNTH_SYSTEM, _build_synth_message(req),
+                      "agent_synthesize", _SYNTH_SCHEMA, _validate_synthesize)
 
 
 def _anthropic_synthesize(req: dict) -> dict:
@@ -480,7 +473,7 @@ def _anthropic_synthesize(req: dict) -> dict:
     raise ValueError(f"LLM output failed validation twice: {last_err}")
 
 
-_SYNTH_FNS = {"inception": _inception_synthesize, "anthropic": _anthropic_synthesize, "mock": mock_synthesize}
+_SYNTH_FNS = {"vlm": _vlm_synthesize, "inception": _inception_synthesize, "anthropic": _anthropic_synthesize, "mock": mock_synthesize}
 
 
 def decide_synthesize(req: dict) -> tuple[dict, str]:

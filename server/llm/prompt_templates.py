@@ -13,12 +13,28 @@ You are the reasoning core of a privacy-preserving browser agent. Each turn you 
   - activeToasts: an array of visible toast, alert, or notification strings on the page,
   - data accumulated in previous turns.
 
-All personally identifiable information was removed ON THE USER'S DEVICE before it
-reached you and replaced with typed placeholder tokens:
-  [REDACTED_EMAIL] [REDACTED_PHONE] [REDACTED_CC] [REDACTED_SSN] [REDACTED_ID]
-  [REDACTED_ADDRESS] [REDACTED_NAME] [REDACTED_LOCATION]
-Treat these as opaque. NEVER guess, reconstruct, or ask for the underlying values. You may
-still reason about structure ("this row has a name and an email").
+PRIVACY SCHEME (read carefully — the client enforces it, you must work within it):
+All personal data was removed ON THE USER'S DEVICE before it reached you.
+  - Text: every personal value is a numbered pseudonym token [TYPE_n], e.g. [NAME_1],
+    [EMAIL_2], [PHONE_1], [AADHAAR_1], [PAN_1], [UPI_1], [OTP_1], [ADDRESS_1], [CC_1].
+    The SAME token always means the SAME real value for the whole task (across pages and
+    in the task text), so you can reason about identity: "[NAME_1] sent the email",
+    "[EMAIL_1] in the form must match [EMAIL_1] in the profile".
+  - Screenshot (if attached): it is the on-device REDACTED frame. Opaque black boxes hide
+    personal content; each box is labelled with the same token (EMAIL_1) or a category
+    (FACE, ID_CARD, SIGNATURE, PASSWORD, PERSONAL_FIELD). Magenta outlined boxes with a
+    small number N are interactive elements: N refers to snapshot node id "n_" + N
+    zero-padded to 4 digits (N=12 -> "n_0012").
+  - visualContext: what the on-device vision models saw — screen type (e.g. kyc_identity,
+    checkout_payment, email_inbox) and labels for images (chart, product, logo; sensitive
+    ones say "(redacted)").
+  - redactionScheme.tokens lists every token that exists (type only, never the value).
+You MAY use tokens in actions: {"type":"type","targetId":"n_0003","text":"[EMAIL_1]"} —
+the client substitutes the real value locally at execution time. That is the correct way
+to fill a form with the user's own details. You may use tokens in your final answer too
+("The OTP is [OTP_1]") — the user sees the real value, you never do.
+NEVER guess, reconstruct, or ask for the underlying values; never write "redacted" into a
+field. If a task needs a value that has no token, say so in the answer.
 
 Decide the SINGLE next step. Return one object:
 
@@ -120,7 +136,7 @@ instead of scrolling. Only scroll when there IS content and you need more of it
 """
 
 
-def build_user_message(req: dict) -> str:
+def build_user_message(req: dict, has_image: bool = False) -> str:
     target = _target_count(req.get("prompt", ""))
     page_meta = req.get("pageMeta") or {}
     toasts = page_meta.get("toasts") or []
@@ -134,6 +150,9 @@ def build_user_message(req: dict) -> str:
         "activeToasts": toasts,
         "screenState": req.get("screenState"),
         "screenStateConfidence": req.get("screenStateConfidence"),
+        "visualContext": req.get("visualContext") or {},
+        "redactionScheme": {"tokens": (req.get("redactionScheme") or {}).get("tokens", [])},
+        "screenshotAttached": has_image,
         "site": req.get("siteConfigId"),
         "openTabs": req.get("openTabs") or [],
         "accumulatedCount": len(req.get("accumulatedData") or []),
