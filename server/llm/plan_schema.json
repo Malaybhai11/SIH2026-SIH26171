@@ -1,0 +1,24 @@
+{
+  "$comment": "Machine copy of the /agent/plan RESPONSE schema (docs/api-contract.md). Used to constrain LLM structured output and for server-side validation. Non-strict: unused fields may be omitted; the server fills defaults.",
+  "type": "object",
+  "properties": {
+    "subtasks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "goal": { "type": "string" },
+          "startUrl": { "type": ["string", "null"] }
+        },
+        "required": ["id", "goal"],
+        "additionalProperties": false
+      }
+    },
+    "reasoning": { "type": "string", "description": "one sentence" }
+  },
+  "required": ["subtasks"],
+  "additionalProperties": false
+}
