@@ -57,6 +57,14 @@ const els = {
   tabSubAgents: $("tabSubAgents"),
   tabNotes: $("tabNotes"),
   tabRedact: $("tabRedact"),
+  tabPrivacy: $("tabPrivacy"),
+  privacyPanel: $("privacyPanel"),
+  previewBtn: $("previewBtn"),
+  previewInfo: $("previewInfo"),
+  xray: $("xray"),
+  perceptionMode: $("perceptionMode"),
+  sendScreenshot: $("sendScreenshot"),
+  humanize: $("humanize"),
   tabMetrics: $("tabMetrics"),
   tabLog: $("tabLog"),
 };
@@ -84,6 +92,7 @@ const TAB_PANELS = {
   plan: els.planPanel,
   subAgents: els.subAgentsPanel,
   notes: els.notesPanel,
+  privacy: els.privacyPanel,
   redact: els.redactPanel,
   metrics: els.metricsPanel,
   log: els.logPanel,
@@ -93,6 +102,7 @@ const TAB_BUTTONS = {
   plan: els.tabPlan,
   subAgents: els.tabSubAgents,
   notes: els.tabNotes,
+  privacy: els.tabPrivacy,
   redact: els.tabRedact,
   metrics: els.tabMetrics,
   log: els.tabLog,
@@ -409,22 +419,36 @@ function render(state) {
     els.redactBody.innerHTML = `<p class="muted">No PII detected in the extracted context.</p>`;
   }
 
-  // Metrics tab
+  // Metrics tab — per-step latency breakdown + client resource use
   const iters = state.metrics?.iterations ?? [];
+  const eng = state.engineStats;
+  const engHtml = eng
+    ? `<div class="kv2">
+        <span>backend</span><b>${escapeHtml(eng.ep || "-")}${eng.threads ? ` · ${eng.threads} thr` : ""}</b>
+        <span>models loaded</span><b>${eng.modelMB ?? 0} MB (${Object.keys(eng.models || {}).join(", ") || "none"})</b>
+        <span>JS heap (engine)</span><b>${eng.memory ? `${eng.memory.jsHeapUsedMB} MB` : "n/a"}</b>
+        <span>cache hits</span><b>frame ${eng.cache?.frame ?? 0} · regions ${eng.cache?.region ?? 0} · NER ${eng.cache?.ner ?? 0}</b>
+        <span>privacy</span><b>${state.privacy?.boxesPainted ?? 0} boxes painted · ${state.privacy?.tokens ?? 0} tokens · gate fixes ${state.privacy?.gateFixes ?? 0} · ${Math.round((state.privacy?.bytesSent ?? 0) / 1024)} KB sent</b>
+      </div>`
+    : "";
   if (iters.length) {
-    const head = `<tr><th>#</th><th>perceive</th><th>redact</th><th>vision</th><th>server</th><th>total</th></tr>`;
+    const head = `<tr><th>#</th><th>DOM</th><th>text PII</th><th>vision</th><th>paint</th><th>server</th><th>total</th></tr>`;
     const body = iters
       .map(
         (m) =>
-          `<tr><td>${m.iteration}</td><td>${m.perceiveMs ?? "-"}</td><td>${m.redactMs ?? "-"}</td><td>${m.visionTotalMs ?? "-"}</td><td>${m.serverMs ?? "-"}</td><td>${m.totalMs ?? "-"}</td></tr>`,
+          `<tr><td>${m.iteration}</td><td>${m.domMs ?? "-"}</td><td>${m.textPiiMs ?? "-"}</td><td>${m.visionMs ?? "-"}${m.cacheHit ? "*" : ""}</td><td>${m.paintMs ?? "-"}</td><td>${m.serverMs ?? "-"}</td><td>${m.totalMs ?? "-"}</td></tr>`,
       )
       .join("");
-    const avg = Math.round(iters.reduce((a, m) => a + (m.totalMs || 0), 0) / iters.length);
+    const avg = (k) => Math.round(iters.reduce((a, m) => a + (m[k] || 0), 0) / iters.length);
     els.metricsBody.innerHTML =
-      `<table class="metrics">${head}${body}</table><p class="muted">avg loop: ${avg} ms (target &lt; 2500)</p>`;
+      engHtml +
+      `<table class="metrics">${head}${body}</table><p class="muted">avg on-device perception ${avg("perceptionMs")} ms · avg step ${avg("totalMs")} ms · * = frame cache hit</p>`;
   } else {
-    els.metricsBody.innerHTML = `<p class="muted">No iterations yet.</p>`;
+    els.metricsBody.innerHTML = engHtml + `<p class="muted">No iterations yet.</p>`;
   }
+
+  // Privacy X-ray — during a task, show the last frame the server received
+  if (state.lastRedactedImage && !previewShown) renderXray({ redactedImage: state.lastRedactedImage, ...state.lastVisual, tokens: state.vaultCatalog, live: true });
 
   // Log tab
   const logEntries = state.log || [];
@@ -435,6 +459,62 @@ function render(state) {
     .join("");
   els.log.scrollTop = els.log.scrollHeight;
 }
+
+// ---- Privacy X-ray ----
+let previewShown = false;
+function renderXray(r) {
+  const counts = r.boxCounts
+    ? `<div class="chips-row">
+        <span class="rtype">text ${r.boxCounts.text}</span><span class="rtype">fields ${r.boxCounts.fields}</span>
+        <span class="rtype">faces ${r.boxCounts.faces}</span><span class="rtype">images ${r.boxCounts.regions}</span></div>`
+    : "";
+  const screen = r.screen ? `<div>screen: <b>${escapeHtml(r.screen.state)}</b> (${r.screen.confidence})</div>` : "";
+  const regions = (r.regions || []).length
+    ? `<div class="muted">images: ${r.regions.map((x) => `${escapeHtml(x.label)}${x.sensitive ? " ⬛" : ""}`).join(", ")}</div>`
+    : "";
+  const tokens = (r.tokens || []).length
+    ? `<div class="muted">tokens sent instead of values: ${r.tokens.map((t) => `<code>${escapeHtml(t.token)}</code>`).join(" ")}</div>`
+    : "";
+  const t = r.timings ? `<div class="muted">on-device: ${r.timings.perceptionTotalMs ?? r.totalMs} ms (DOM+text ${r.timings.domAndTextMs} · vision ${r.timings.analyzeMs ?? "-"} · paint ${r.timings.redactMs ?? "-"})${r.cacheHit ? " · cached" : ""}</div>` : "";
+  els.xray.innerHTML =
+    (r.redactedImage ? `<img class="xray-img" src="${r.redactedImage}" alt="redacted frame" title="Exactly the image a vision model would receive" />` : "") +
+    `${r.live ? '<div class="muted">last frame sent to the server</div>' : ""}${counts}${screen}${regions}${tokens}${t}`;
+}
+els.previewBtn.addEventListener("click", async () => {
+  els.previewBtn.disabled = true;
+  els.previewInfo.textContent = "Running on-device perception…";
+  try {
+    // ?tab=<id> lets tests/screenshots target a specific tab; normally the active one
+    const tabId = Number(new URLSearchParams(location.search).get("tab")) || undefined;
+    const r = await chrome.runtime.sendMessage({ type: MSG.PRIVACY_PREVIEW, payload: { tabId } });
+    if (!r?.ok) throw new Error(r?.error || "preview failed");
+    previewShown = true;
+    renderXray(r);
+    els.previewInfo.textContent = `${r.boxes.length} region(s) blacked out · ${(r.redactedBytes / 1024).toFixed(0)} KB image · engine ${r.engine?.ep ?? "?"}`;
+  } catch (e) {
+    els.previewInfo.textContent = String(e.message || e);
+  } finally {
+    els.previewBtn.disabled = false;
+  }
+});
+
+// ---- Settings (persisted by the background) ----
+async function loadSettingsUi() {
+  const s = (await chrome.storage.local.get("agentSettings")).agentSettings || {};
+  if (s.perceptionMode) els.perceptionMode.value = s.perceptionMode;
+  if (s.sendScreenshot !== undefined) els.sendScreenshot.checked = !!s.sendScreenshot;
+  if (s.humanize !== undefined) els.humanize.checked = !!s.humanize;
+}
+function saveSettingsUi() {
+  chrome.runtime.sendMessage({
+    type: MSG.SAVE_SETTINGS,
+    payload: { perceptionMode: els.perceptionMode.value, sendScreenshot: els.sendScreenshot.checked, humanize: els.humanize.checked },
+  });
+}
+for (const el of [els.perceptionMode, els.sendScreenshot, els.humanize]) el.addEventListener("change", saveSettingsUi);
+loadSettingsUi();
+// load the models while the user types (hides first-step model load latency)
+chrome.runtime.sendMessage({ type: MSG.WARMUP }).catch(() => {});
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
@@ -485,7 +565,7 @@ chrome.runtime.sendMessage({ type: MSG.GET_STATE }).then((res) => {
     els.localOnly.checked = !!res.state.localOnly;
     // STATE doesn't persist a multiAgentEnabled field today — default to checked
     // unless a matching field happens to exist, so this stays a no-op until it does.
-    els.multiAgent.checked = res.state.multiAgentEnabled === undefined ? true : !!res.state.multiAgentEnabled;
+    els.multiAgent.checked = !!res.state.multiAgentEnabled;
     updateChipsVisibility();
   }
 });

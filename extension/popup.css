@@ -445,3 +445,13 @@ table.metrics td:first-child {
   margin-bottom: 2px;
   font-size: 11px;
 }
+
+/* --- Aavaran additions --- */
+header h1 .sub { font-weight: 400; font-size: 11px; opacity: 0.7; margin-left: 4px; }
+.settings-row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.settings-row select { font: inherit; padding: 1px 4px; }
+.xray-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.xray-img { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; margin: 4px 0; display: block; }
+.chips-row { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0; }
+.kv2 { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin-bottom: 8px; font-size: 11px; }
+.kv2 span { opacity: 0.7; }
