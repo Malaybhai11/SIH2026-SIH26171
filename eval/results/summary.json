@@ -1,0 +1,90 @@
+{
+  "criterion1_visualContext": {
+    "screenCategoryAccuracy_unseenSites": 0.733,
+    "zeroShotClipOnly": 0.558,
+    "protocol": "leave-domain-out 5-fold CV, 217 screens from 96 sites, 10 categories"
+  },
+  "criterion2_piiDetection": {
+    "indian": {
+      "recall": 0.956,
+      "precision": 0.985,
+      "f1": 0.97
+    },
+    "ai4privacy": {
+      "recall": 0.751,
+      "precision": 0.991,
+      "f1": 0.854
+    },
+    "faces_widerVal": {
+      "precision": 0.783,
+      "recall": 0.732
+    }
+  },
+  "criterion3_redactionPrecision": {
+    "pages": 5,
+    "gtObjects": 46,
+    "pixelPrecision": 0.913,
+    "pixelRecall": 0.997,
+    "objectRecall": 1
+  },
+  "criterion4_clientResources": {
+    "eco": {
+      "engineMemoryMB": 36.6,
+      "modelMB": 0.2,
+      "warmStepMedianMs": 333,
+      "warmStepP90Ms": 439,
+      "unchangedFrameMs": 142,
+      "coldStartMs": 2344
+    },
+    "balanced": {
+      "engineMemoryMB": 173.3,
+      "modelMB": 51.9,
+      "warmStepMedianMs": 377,
+      "warmStepP90Ms": 1459,
+      "unchangedFrameMs": 148,
+      "coldStartMs": 8181
+    }
+  },
+  "criterion5_endToEnd": {
+    "checkout": {
+      "passed": true,
+      "wallMs": 7388,
+      "steps": 1,
+      "avgServerMs": 1427,
+      "avgPerceptionMs": 4964,
+      "leaks": 0
+    },
+    "inbox": {
+      "passed": true,
+      "wallMs": 5787,
+      "steps": 1,
+      "avgServerMs": 1285,
+      "avgPerceptionMs": 3376,
+      "leaks": 0
+    },
+    "kyc": {
+      "passed": true,
+      "wallMs": 21840,
+      "steps": 6,
+      "avgServerMs": 2082,
+      "avgPerceptionMs": 1093,
+      "leaks": 0
+    },
+    "register": {
+      "passed": true,
+      "wallMs": 17197,
+      "steps": 5,
+      "avgServerMs": 1672,
+      "avgPerceptionMs": 1241,
+      "leaks": 0
+    },
+    "social": {
+      "passed": true,
+      "wallMs": 6071,
+      "steps": 1,
+      "avgServerMs": 1734,
+      "avgPerceptionMs": 3694,
+      "leaks": 0
+    }
+  }
+}
