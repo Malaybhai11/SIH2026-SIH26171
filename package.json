@@ -1,22 +1,35 @@
 {
-  "name": "sih171-privacy-browser-agent",
-  "version": "0.1.0",
+  "name": "aavaran-private-browser-agent",
+  "version": "0.2.0",
   "private": true,
-  "description": "On-device visual perception for lightweight browser agents (SIH PS 26171)",
+  "description": "Aavaran — on-device visual perception + PII redaction for lightweight browser agents (SIH PS 26171)",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "build:firefox": "node build.mjs --target firefox",
     "watch": "node build.mjs --watch",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist dist-firefox",
+    "fetch-models": "node scripts/fetch_models.mjs",
+    "build:clip-labels": "node scripts/fetch_models.mjs --dev && node scripts/build_clip_labels.mjs",
     "test:redact": "node --test extension/lib/redact.test.mjs",
     "test:human": "node --test extension/lib/humanBehavior.test.mjs",
     "test": "npm run test:redact && npm run test:human",
-    "eval": "python3 eval/metrics.py"
+    "eval:pii": "node eval/pii_eval.mjs",
+    "eval:faces": "node eval/faces_eval.mjs --n 300 --thr 0.5",
+    "eval:redaction": "node eval/redaction_eval.mjs",
+    "eval:screens": "node eval/screens_capture.mjs && node eval/screens_train.mjs",
+    "eval:latency": "node eval/latency_eval.mjs",
+    "eval:e2e": "for t in register inbox kyc social checkout; do node eval/task_e2e.mjs --task $t; done",
+    "eval:summary": "node eval/summary.mjs"
   },
   "devDependencies": {
-    "esbuild": "^0.23.0"
+    "@huggingface/transformers": "^4.3.0",
+    "esbuild": "^0.23.0",
+    "onnxruntime-node": "^1.30.0",
+    "puppeteer-core": "^25.12.0",
+    "sharp": "^0.35.4"
   },
-  "optionalDependencies": {
-    "onnxruntime-web": "^1.19.0"
+  "dependencies": {
+    "onnxruntime-web": "1.29.0"
   }
 }
