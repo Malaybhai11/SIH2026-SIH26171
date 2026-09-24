@@ -1,30 +1,11 @@
 # Model files
 
-Drop the quantized ONNX models here to switch the vision pipeline out of **mock mode**.
-Filenames must match `docs/model-contract.md`:
-
-| file | model | notes |
-|---|---|---|
-| `blazeface_int8.onnx` | Face detector (Model A) | dynamic INT8, opset 17, input `1x3x128x128` |
-| `tinyvit_screen_int8.onnx` | Screen/region classifier (Model B) | static INT8, input `1x3x224x224`, 6 logits |
-| `distilbert_ner_int8.onnx` | PII NER (Model C) | INT8, seq 256, 9 BIO tags |
-| `bert_vocab.json` | WordPiece vocab for Model C tokenisation | |
-
-Also copy the ONNX Runtime Web wasm artifacts (`ort-wasm-simd-threaded.*`) here if you
-bundle them locally instead of letting `onnxruntime-web` resolve its own.
-
-These files are git-ignored. Without them, `visionPipeline.getMode()` returns `"mock"` and
-the pipeline derives deterministic outputs from the screenshot + DOM hints so the full
-agent loop still runs offline (see `docs/model-contract.md` → "Mock-mode behaviour").
-
-## Export recipe (track C)
-
-```
-PyTorch checkpoint
-  → torch.onnx.export(..., opset_version=17, dynamic_axes=None)   # static shapes
-  → onnxruntime.quantization.quantize_dynamic(...)   # BlazeFace / NER
-  → onnxruntime.quantization.quantize_static(..., calibration_data_reader=...)   # TinyViT
+```bash
+npm run fetch-models        # ~52 MB: YuNet, MobileCLIP-S0 image tower (FP16), BERT-small PII (INT8)
+npm run build:clip-labels   # optional: re-embed the zero-shot prompts (downloads the 170 MB text tower)
 ```
 
-Calibration set for TinyViT: ~200 screenshots across login / feed / form / checkout pages,
-placed in `eval/screen_state_test_set/` (also used for accuracy scoring).
+`clip_labels.json` (prompt embeddings) is committed, so the text tower is only needed if
+you edit the prompts in `scripts/build_clip_labels.mjs`. Everything else here is
+git-ignored and copied into `dist/models/` by the build. See `docs/model-contract.md`
+for tensor shapes, pre/post-processing and why each precision was chosen.
