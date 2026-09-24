@@ -1,0 +1,153 @@
+{
+  "task": "checkout",
+  "prompt": "What is my order total and where is it being delivered?",
+  "status": "DONE",
+  "answer": "Your order total is ₹2,347 and it will be delivered to Rohan Mehta · House No. 12, Sector 15, Rohini, Delhi 110085 · Phone: +91 98111 22334.",
+  "error": null,
+  "passed": true,
+  "outcome": null,
+  "wallMs": 7388,
+  "steps": [
+    {
+      "iteration": 1,
+      "domMs": 41,
+      "textPiiMs": 2254,
+      "tokenizeMs": 103,
+      "visionMs": 1524,
+      "facesMs": 278,
+      "clipMs": 901,
+      "paintMs": 103,
+      "perceptionMs": 4964,
+      "cacheHit": false,
+      "serverMs": 1427,
+      "totalMs": 6523
+    }
+  ],
+  "serverSaw": {
+    "prompt": "What is my order total and where is it being delivered?",
+    "tokens": [
+      {
+        "token": "[NAME_1]",
+        "type": "NAME"
+      },
+      {
+        "token": "[NAME_2]",
+        "type": "NAME"
+      },
+      {
+        "token": "[ADDRESS_1]",
+        "type": "ADDRESS"
+      },
+      {
+        "token": "[PHONE_1]",
+        "type": "PHONE"
+      }
+    ],
+    "visualContext": {
+      "screen": {
+        "state": "checkout_payment",
+        "category": "form",
+        "confidence": 0.945,
+        "probs": [
+          {
+            "id": "checkout_payment",
+            "p": 0.945
+          },
+          {
+            "id": "signup_form",
+            "p": 0.022
+          },
+          {
+            "id": "kyc_identity",
+            "p": 0.008
+          }
+        ],
+        "pixelsOnly": "checkout_payment",
+        "cues": [
+          "checkout_payment"
+        ]
+      },
+      "regions": [],
+      "facesRedacted": 0,
+      "boxCounts": {
+        "text": 4,
+        "fields": 4,
+        "faces": 0,
+        "regions": 0
+      }
+    }
+  },
+  "leakCheck": {
+    "secretsChecked": 6,
+    "leaked": [],
+    "requestsInspected": 1
+  },
+  "privacy": {
+    "gateFixes": 0,
+    "boxesPainted": 8,
+    "tokens": 4,
+    "bytesSent": 59042
+  },
+  "engine": {
+    "ep": "wasm",
+    "models": {
+      "face": {
+        "bytes": 232589,
+        "loadMs": 2615,
+        "ep": "wasm"
+      },
+      "clip": {
+        "bytes": 22876479,
+        "loadMs": 2614,
+        "ep": "wasm"
+      },
+      "ner": {
+        "bytes": 28748527,
+        "loadMs": 3138,
+        "ep": "wasm"
+      }
+    },
+    "calls": {
+      "ner": {
+        "n": 5,
+        "totalMs": 3467.4899999648333,
+        "lastMs": 41
+      },
+      "faces": {
+        "n": 1,
+        "totalMs": 276.82999999821186,
+        "lastMs": 277
+      },
+      "clip": {
+        "n": 1,
+        "totalMs": 901.4599999934435,
+        "lastMs": 901
+      },
+      "redact": {
+        "n": 1,
+        "totalMs": 85.36499999463558,
+        "lastMs": 85
+      }
+    },
+    "cache": {
+      "frame": 0,
+      "region": 0,
+      "ner": 20
+    },
+    "threads": 4,
+    "lastNerStrings": 1,
+    "lastClipBatch": 1,
+    "modelMB": 51.9,
+    "memory": {
+      "jsHeapUsedMB": 45.8,
+      "jsHeapTotalMB": 49.6
+    }
+  },
+  "log": [
+    "task \"What is my order total and where is it being delivered?\" on http://localhost:8000/demo/checkout.html (target=n/a, localOnly=false, multiAgent=false)",
+    "plan: 1 subtask(s) — single-agent mode",
+    "--- iteration 1/12 ---",
+    "redacted 4 text span(s); painted 8 box(es) [text 4, fields 4, faces 0, images 0]; screen=checkout_payment (0.945); ep=wasm; perception 4964ms",
+    "done: Extracted total and delivery address from the checkout page snapshot."
+  ]
+}
