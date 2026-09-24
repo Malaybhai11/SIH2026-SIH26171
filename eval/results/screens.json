@@ -1,0 +1,490 @@
+{
+  "generatedAt": "2026-09-24T18:21:05.885Z",
+  "protocol": "leave-domain-out 5-fold CV, 217 screens from 96 sites, 10 categories",
+  "categories": [
+    "auth",
+    "form",
+    "search",
+    "reading",
+    "listing",
+    "social",
+    "code",
+    "media",
+    "data",
+    "error"
+  ],
+  "accuracy": {
+    "zeroShotClip": 0.558,
+    "clipPlusDomPriors": 0.733,
+    "linearHeadClip": 0.581,
+    "linearHeadClipPlusDom": 0.512
+  },
+  "shipped": "clipPlusDomPriors (best under leave-domain-out; the linear head needs more site diversity)",
+  "perClass_shipped": {
+    "auth": {
+      "n": 33,
+      "acc": 0.73
+    },
+    "form": {
+      "n": 15,
+      "acc": 0.6
+    },
+    "search": {
+      "n": 20,
+      "acc": 0.7
+    },
+    "reading": {
+      "n": 31,
+      "acc": 0.58
+    },
+    "listing": {
+      "n": 19,
+      "acc": 0.79
+    },
+    "social": {
+      "n": 27,
+      "acc": 0.63
+    },
+    "code": {
+      "n": 18,
+      "acc": 0.89
+    },
+    "media": {
+      "n": 20,
+      "acc": 0.9
+    },
+    "data": {
+      "n": 8,
+      "acc": 0.75
+    },
+    "error": {
+      "n": 26,
+      "acc": 0.85
+    }
+  },
+  "confusions_shipped": {
+    "reading->code": 5,
+    "auth->error": 4,
+    "search->code": 4,
+    "social->code": 4,
+    "social->search": 4,
+    "reading->data": 3,
+    "auth->form": 2,
+    "auth->social": 2,
+    "form->error": 2,
+    "form->auth": 2,
+    "reading->form": 2,
+    "reading->social": 2,
+    "listing->error": 2,
+    "code->social": 2,
+    "media->social": 2,
+    "error->auth": 1,
+    "auth->data": 1,
+    "form->social": 1,
+    "error->reading": 1,
+    "form->data": 1,
+    "search->social": 1,
+    "search->reading": 1,
+    "reading->search": 1,
+    "listing->search": 1,
+    "listing->social": 1,
+    "data->error": 1,
+    "error->code": 1,
+    "data->form": 1,
+    "error->media": 1,
+    "social->form": 1,
+    "social->media": 1
+  },
+  "perClass_linearHeadClipPlusDom": {
+    "auth": {
+      "n": 33,
+      "acc": 0.79
+    },
+    "form": {
+      "n": 15,
+      "acc": 0.53
+    },
+    "search": {
+      "n": 20,
+      "acc": 0.75
+    },
+    "reading": {
+      "n": 31,
+      "acc": 0.1
+    },
+    "listing": {
+      "n": 19,
+      "acc": 1
+    },
+    "social": {
+      "n": 27,
+      "acc": 0.15
+    },
+    "code": {
+      "n": 18,
+      "acc": 0
+    },
+    "media": {
+      "n": 20,
+      "acc": 0.6
+    },
+    "data": {
+      "n": 8,
+      "acc": 0.38
+    },
+    "error": {
+      "n": 26,
+      "acc": 0.81
+    }
+  },
+  "errors_shipped": [
+    {
+      "id": "001",
+      "label": "error_captcha",
+      "pred": "auth",
+      "url": "https://www.linkedin.com/login"
+    },
+    {
+      "id": "002",
+      "label": "login",
+      "pred": "form",
+      "url": "https://stackoverflow.com/users/login"
+    },
+    {
+      "id": "008",
+      "label": "login",
+      "pred": "form",
+      "url": "https://www.instagram.com/accounts/login/"
+    },
+    {
+      "id": "010",
+      "label": "login",
+      "pred": "error",
+      "url": "https://www.pinterest.com/login/"
+    },
+    {
+      "id": "011",
+      "label": "login",
+      "pred": "social",
+      "url": "https://www.canva.com/login"
+    },
+    {
+      "id": "012",
+      "label": "login",
+      "pred": "error",
+      "url": "https://trello.com/login"
+    },
+    {
+      "id": "019",
+      "label": "login",
+      "pred": "data",
+      "url": "https://www.hackerrank.com/auth/login"
+    },
+    {
+      "id": "029",
+      "label": "login",
+      "pred": "social",
+      "url": "https://web.libera.chat/"
+    },
+    {
+      "id": "030",
+      "label": "signup_form",
+      "pred": "social",
+      "url": "https://github.com/signup"
+    },
+    {
+      "id": "032",
+      "label": "signup_form",
+      "pred": "error",
+      "url": "https://www.reddit.com/register/"
+    },
+    {
+      "id": "034",
+      "label": "error_captcha",
+      "pred": "reading",
+      "url": "https://signup.heroku.com/"
+    },
+    {
+      "id": "035",
+      "label": "signup_form",
+      "pred": "auth",
+      "url": "https://www.twitch.tv/signup"
+    },
+    {
+      "id": "036",
+      "label": "signup_form",
+      "pred": "auth",
+      "url": "https://www.notion.so/signup"
+    },
+    {
+      "id": "038",
+      "label": "signup_form",
+      "pred": "data",
+      "url": "https://www.hackerrank.com/auth/signup"
+    },
+    {
+      "id": "039",
+      "label": "signup_form",
+      "pred": "error",
+      "url": "https://leetcode.com/accounts/signup/"
+    },
+    {
+      "id": "058",
+      "label": "search_results",
+      "pred": "social",
+      "url": "https://search.brave.com/search?q=isro"
+    },
+    {
+      "id": "060",
+      "label": "search_results",
+      "pred": "reading",
+      "url": "https://search.brave.com/search?q=navic%20gps"
+    },
+    {
+      "id": "065",
+      "label": "search_results",
+      "pred": "code",
+      "url": "https://github.com/search?q=webgpu&type=repositories"
+    },
+    {
+      "id": "066",
+      "label": "search_results",
+      "pred": "code",
+      "url": "https://github.com/search?q=onnx%20runtime&type=repositories"
+    },
+    {
+      "id": "067",
+      "label": "search_results",
+      "pred": "code",
+      "url": "https://www.ecosia.org/search?q=isro"
+    },
+    {
+      "id": "068",
+      "label": "search_results",
+      "pred": "code",
+      "url": "https://www.ecosia.org/search?q=chandrayaan%203"
+    },
+    {
+      "id": "077",
+      "label": "article",
+      "pred": "form",
+      "url": "https://en.wikipedia.org/wiki/Special:Random"
+    },
+    {
+      "id": "078",
+      "label": "article",
+      "pred": "data",
+      "url": "https://en.wikipedia.org/wiki/Special:Random"
+    },
+    {
+      "id": "079",
+      "label": "article",
+      "pred": "data",
+      "url": "https://en.wikipedia.org/wiki/Special:Random"
+    },
+    {
+      "id": "081",
+      "label": "article",
+      "pred": "social",
+      "url": "https://en.wikipedia.org/wiki/Special:Random"
+    },
+    {
+      "id": "084",
+      "label": "article",
+      "pred": "search",
+      "url": "https://en.wikipedia.org/wiki/Vikram_Sarabhai"
+    },
+    {
+      "id": "085",
+      "label": "article",
+      "pred": "code",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API"
+    },
+    {
+      "id": "086",
+      "label": "article",
+      "pred": "code",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/canvas"
+    },
+    {
+      "id": "087",
+      "label": "article",
+      "pred": "code",
+      "url": "https://docs.python.org/3/tutorial/introduction.html"
+    },
+    {
+      "id": "088",
+      "label": "article",
+      "pred": "code",
+      "url": "https://docs.python.org/3/library/json.html"
+    },
+    {
+      "id": "090",
+      "label": "article",
+      "pred": "social",
+      "url": "https://arxiv.org/abs/1706.03762"
+    },
+    {
+      "id": "091",
+      "label": "article",
+      "pred": "form",
+      "url": "https://www.gutenberg.org/files/1342/1342-h/1342-h.htm"
+    },
+    {
+      "id": "093",
+      "label": "article",
+      "pred": "code",
+      "url": "https://go.dev/doc/effective_go"
+    },
+    {
+      "id": "096",
+      "label": "product_listing",
+      "pred": "error",
+      "url": "https://www.ebay.com/sch/i.html?_nkw=headphones"
+    },
+    {
+      "id": "097",
+      "label": "product_listing",
+      "pred": "error",
+      "url": "https://www.ebay.com/sch/i.html?_nkw=laptop"
+    },
+    {
+      "id": "103",
+      "label": "product_listing",
+      "pred": "search",
+      "url": "https://www.flipkart.com/search?q=television"
+    },
+    {
+      "id": "111",
+      "label": "product_listing",
+      "pred": "social",
+      "url": "https://www.ikea.com/in/en/cat/chairs-fu002/"
+    },
+    {
+      "id": "122",
+      "label": "code_repo",
+      "pred": "social",
+      "url": "https://github.com/facebook/react"
+    },
+    {
+      "id": "133",
+      "label": "code_repo",
+      "pred": "social",
+      "url": "https://gitlab.com/inkscape/inkscape"
+    },
+    {
+      "id": "158",
+      "label": "map",
+      "pred": "social",
+      "url": "https://wego.here.com/?map=28.61,77.20,12"
+    },
+    {
+      "id": "159",
+      "label": "map",
+      "pred": "social",
+      "url": "https://wego.here.com/?map=12.97,77.59,12"
+    },
+    {
+      "id": "163",
+      "label": "dashboard_table",
+      "pred": "error",
+      "url": "https://coinmarketcap.com/"
+    },
+    {
+      "id": "167",
+      "label": "error_captcha",
+      "pred": "code",
+      "url": "https://play.grafana.org/d/000000012/grafana-play-home"
+    },
+    {
+      "id": "171",
+      "label": "dashboard_table",
+      "pred": "form",
+      "url": "https://datatables.net/examples/basic_init/zero_configuration.html"
+    },
+    {
+      "id": "172",
+      "label": "article",
+      "pred": "data",
+      "url": "https://www.w3schools.com/html/html_tables.asp"
+    },
+    {
+      "id": "185",
+      "label": "error_captcha",
+      "pred": "media",
+      "url": "https://www.nasa.gov/nope-26171"
+    },
+    {
+      "id": "198",
+      "label": "profile_page",
+      "pred": "code",
+      "url": "https://github.com/xenova"
+    },
+    {
+      "id": "202",
+      "label": "profile_page",
+      "pred": "code",
+      "url": "https://huggingface.co/Xenova"
+    },
+    {
+      "id": "203",
+      "label": "profile_page",
+      "pred": "code",
+      "url": "https://huggingface.co/apple"
+    },
+    {
+      "id": "206",
+      "label": "profile_page",
+      "pred": "form",
+      "url": "https://dev.to/ben"
+    },
+    {
+      "id": "209",
+      "label": "social_feed",
+      "pred": "search",
+      "url": "https://news.ycombinator.com/"
+    },
+    {
+      "id": "210",
+      "label": "social_feed",
+      "pred": "search",
+      "url": "https://news.ycombinator.com/newest"
+    },
+    {
+      "id": "212",
+      "label": "social_feed",
+      "pred": "code",
+      "url": "https://lobste.rs/"
+    },
+    {
+      "id": "213",
+      "label": "social_feed",
+      "pred": "search",
+      "url": "https://lobste.rs/newest"
+    },
+    {
+      "id": "217",
+      "label": "login",
+      "pred": "error",
+      "url": "https://old.reddit.com/r/space/"
+    },
+    {
+      "id": "218",
+      "label": "login",
+      "pred": "error",
+      "url": "https://old.reddit.com/r/ISRO/"
+    },
+    {
+      "id": "219",
+      "label": "social_feed",
+      "pred": "media",
+      "url": "https://dev.to/"
+    },
+    {
+      "id": "221",
+      "label": "social_feed",
+      "pred": "search",
+      "url": "https://tildes.net/"
+    }
+  ]
+}
