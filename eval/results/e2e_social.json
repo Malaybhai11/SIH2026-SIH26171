@@ -1,0 +1,205 @@
+{
+  "task": "social",
+  "prompt": "Summarise in two sentences what people are posting about on this feed.",
+  "status": "DONE",
+  "answer": "People are sharing a mix of updates: one user praised a PSLV launch stream and invited a viewing session, another posted vacation photos of backwaters, a third announced hiring React developers for a startup, and a fourth discussed personal budgeting. Overall, the feed features event enthusiasm, travel highlights, job opportunities, and financial planning.",
+  "error": null,
+  "passed": true,
+  "outcome": null,
+  "wallMs": 6071,
+  "steps": [
+    {
+      "iteration": 1,
+      "domMs": 17,
+      "textPiiMs": 826,
+      "tokenizeMs": 175,
+      "visionMs": 2251,
+      "facesMs": 440,
+      "clipMs": 1708,
+      "paintMs": 175,
+      "perceptionMs": 3694,
+      "cacheHit": false,
+      "serverMs": 1734,
+      "totalMs": 5560
+    }
+  ],
+  "serverSaw": {
+    "prompt": "Summarise in two sentences what people are posting about on this feed.",
+    "tokens": [
+      {
+        "token": "[NAME_1]",
+        "type": "NAME"
+      },
+      {
+        "token": "[NAME_2]",
+        "type": "NAME"
+      },
+      {
+        "token": "[NAME_3]",
+        "type": "NAME"
+      },
+      {
+        "token": "[PHONE_1]",
+        "type": "PHONE"
+      },
+      {
+        "token": "[NAME_4]",
+        "type": "NAME"
+      },
+      {
+        "token": "[NAME_5]",
+        "type": "NAME"
+      },
+      {
+        "token": "[NAME_6]",
+        "type": "NAME"
+      },
+      {
+        "token": "[LOCATION_1]",
+        "type": "LOCATION"
+      },
+      {
+        "token": "[EMAIL_1]",
+        "type": "EMAIL"
+      },
+      {
+        "token": "[ADDRESS_1]",
+        "type": "ADDRESS"
+      },
+      {
+        "token": "[NAME_7]",
+        "type": "NAME"
+      }
+    ],
+    "visualContext": {
+      "screen": {
+        "state": "profile_page",
+        "category": "social",
+        "confidence": 0.772,
+        "probs": [
+          {
+            "id": "profile_page",
+            "p": 0.772
+          },
+          {
+            "id": "code_repo",
+            "p": 0.149
+          },
+          {
+            "id": "kyc_identity",
+            "p": 0.044
+          }
+        ],
+        "pixelsOnly": "profile_page",
+        "cues": []
+      },
+      "regions": [
+        {
+          "id": "n_0007",
+          "label": "face_photo (redacted)",
+          "confidence": 1
+        },
+        {
+          "id": "n_0003",
+          "label": "face_photo (redacted)",
+          "confidence": 1
+        },
+        {
+          "id": "n_0005",
+          "label": "face_photo (redacted)",
+          "confidence": 1
+        },
+        {
+          "id": "n_0008",
+          "label": "face_photo (redacted)",
+          "confidence": 1
+        },
+        {
+          "id": "n_0010",
+          "label": "face_photo (redacted)",
+          "confidence": 1
+        }
+      ],
+      "facesRedacted": 5,
+      "boxCounts": {
+        "text": 12,
+        "fields": 0,
+        "faces": 5,
+        "regions": 5
+      }
+    }
+  },
+  "leakCheck": {
+    "secretsChecked": 6,
+    "leaked": [],
+    "requestsInspected": 1
+  },
+  "privacy": {
+    "gateFixes": 0,
+    "boxesPainted": 22,
+    "tokens": 11,
+    "bytesSent": 80061
+  },
+  "engine": {
+    "ep": "wasm",
+    "models": {
+      "face": {
+        "bytes": 232589,
+        "loadMs": 1407,
+        "ep": "wasm"
+      },
+      "clip": {
+        "bytes": 22876479,
+        "loadMs": 2268,
+        "ep": "wasm"
+      },
+      "ner": {
+        "bytes": 28748527,
+        "loadMs": 2806,
+        "ep": "wasm"
+      }
+    },
+    "calls": {
+      "ner": {
+        "n": 5,
+        "totalMs": 1373.6500000357628,
+        "lastMs": 31
+      },
+      "faces": {
+        "n": 1,
+        "totalMs": 438.7399999946356,
+        "lastMs": 439
+      },
+      "clip": {
+        "n": 1,
+        "totalMs": 1708.4200000017881,
+        "lastMs": 1708
+      },
+      "redact": {
+        "n": 1,
+        "totalMs": 155.27500000596046,
+        "lastMs": 155
+      }
+    },
+    "cache": {
+      "frame": 0,
+      "region": 0,
+      "ner": 9
+    },
+    "threads": 4,
+    "lastNerStrings": 1,
+    "lastClipBatch": 1,
+    "modelMB": 51.9,
+    "memory": {
+      "jsHeapUsedMB": 58,
+      "jsHeapTotalMB": 63
+    }
+  },
+  "log": [
+    "task \"Summarise in two sentences what people are posting about on this feed.\" on http://localhost:8000/demo/social.html (target=n/a, localOnly=false, multiAgent=false)",
+    "plan: 1 subtask(s) — single-agent mode",
+    "--- iteration 1/12 ---",
+    "redacted 11 text span(s); painted 22 box(es) [text 12, fields 0, faces 5, images 5]; screen=profile_page (0.772); ep=wasm; perception 3694ms",
+    "done: Summarized the content of each post into two concise sentences."
+  ]
+}

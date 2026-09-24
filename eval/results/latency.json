@@ -1,0 +1,114 @@
+{
+  "generatedAt": "2026-09-24T18:27:41.690Z",
+  "machine": "Intel(R) Core(TM) i5-4310U CPU @ 2.00GHz x4, no GPU (WASM backend)",
+  "modes": {
+    "eco": {
+      "coldStartMs": 2344,
+      "warmStepMs": {
+        "median": 333,
+        "p90": 439,
+        "n": 9
+      },
+      "unchangedFrameMs": {
+        "median": 142,
+        "p90": 166
+      },
+      "avgStageMs": {
+        "domAndText": 133,
+        "textPiiNer": 3,
+        "vision": 142,
+        "paint": 65
+      },
+      "modelsLoaded": {
+        "face": {
+          "MB": 0.2,
+          "loadMs": 1246
+        }
+      },
+      "modelMB": 0.2,
+      "engineMemoryMB": 36.6,
+      "memoryMethod": "measureUserAgentSpecificMemory",
+      "backend": "wasm",
+      "threads": 4
+    },
+    "balanced": {
+      "coldStartMs": 8181,
+      "warmStepMs": {
+        "median": 377,
+        "p90": 1459,
+        "n": 9
+      },
+      "unchangedFrameMs": {
+        "median": 148,
+        "p90": 205
+      },
+      "avgStageMs": {
+        "domAndText": 300,
+        "textPiiNer": 146,
+        "vision": 370,
+        "paint": 61
+      },
+      "modelsLoaded": {
+        "ner": {
+          "MB": 28.7,
+          "loadMs": 1825
+        },
+        "face": {
+          "MB": 0.2,
+          "loadMs": 86
+        },
+        "clip": {
+          "MB": 22.9,
+          "loadMs": 1038
+        }
+      },
+      "modelMB": 51.9,
+      "engineMemoryMB": 173.3,
+      "memoryMethod": "measureUserAgentSpecificMemory",
+      "backend": "wasm",
+      "threads": 4
+    }
+  },
+  "e2eTasks": {
+    "checkout": {
+      "passed": true,
+      "wallMs": 7388,
+      "steps": 1,
+      "avgServerMs": 1427,
+      "avgPerceptionMs": 4964,
+      "leaks": 0
+    },
+    "inbox": {
+      "passed": true,
+      "wallMs": 5787,
+      "steps": 1,
+      "avgServerMs": 1285,
+      "avgPerceptionMs": 3376,
+      "leaks": 0
+    },
+    "kyc": {
+      "passed": true,
+      "wallMs": 21840,
+      "steps": 6,
+      "avgServerMs": 2082,
+      "avgPerceptionMs": 1093,
+      "leaks": 0
+    },
+    "register": {
+      "passed": true,
+      "wallMs": 17197,
+      "steps": 5,
+      "avgServerMs": 1672,
+      "avgPerceptionMs": 1241,
+      "leaks": 0
+    },
+    "social": {
+      "passed": true,
+      "wallMs": 6071,
+      "steps": 1,
+      "avgServerMs": 1734,
+      "avgPerceptionMs": 3694,
+      "leaks": 0
+    }
+  }
+}
