@@ -1,0 +1,92 @@
+{
+  "generatedAt": "2026-09-24T17:37:39.818Z",
+  "aggregate": {
+    "pages": 5,
+    "gtObjects": 46,
+    "pixelPrecision": 0.913,
+    "pixelRecall": 0.997,
+    "objectRecall": 1
+  },
+  "pages": [
+    {
+      "page": "kyc",
+      "gtObjects": 11,
+      "paintedBoxes": 13,
+      "pixelPrecision": 0.954,
+      "pixelRecall": 0.996,
+      "px": {
+        "painted": 126725,
+        "gt": 121289,
+        "inter": 120849
+      },
+      "objectRecall": 1,
+      "missed": [],
+      "screen": "kyc_identity",
+      "perceptionMs": 9129
+    },
+    {
+      "page": "inbox",
+      "gtObjects": 12,
+      "paintedBoxes": 15,
+      "pixelPrecision": 0.848,
+      "pixelRecall": 0.994,
+      "px": {
+        "painted": 29448,
+        "gt": 25116,
+        "inter": 24972
+      },
+      "objectRecall": 1,
+      "missed": [],
+      "screen": "signup_form",
+      "perceptionMs": 1753
+    },
+    {
+      "page": "social",
+      "gtObjects": 16,
+      "paintedBoxes": 22,
+      "pixelPrecision": 0.918,
+      "pixelRecall": 0.996,
+      "px": {
+        "painted": 90177,
+        "gt": 83093,
+        "inter": 82777
+      },
+      "objectRecall": 1,
+      "missed": [],
+      "screen": "profile_page",
+      "perceptionMs": 1789
+    },
+    {
+      "page": "checkout",
+      "gtObjects": 7,
+      "paintedBoxes": 8,
+      "pixelPrecision": 0.864,
+      "pixelRecall": 1,
+      "px": {
+        "painted": 77810,
+        "gt": 67224,
+        "inter": 67224
+      },
+      "objectRecall": 1,
+      "missed": [],
+      "screen": "checkout_payment",
+      "perceptionMs": 1732
+    },
+    {
+      "page": "register",
+      "gtObjects": 0,
+      "paintedBoxes": 0,
+      "pixelPrecision": null,
+      "pixelRecall": null,
+      "px": {
+        "painted": 0,
+        "gt": 0,
+        "inter": 0
+      },
+      "objectRecall": 0,
+      "missed": [],
+      "screen": "signup_form",
+      "perceptionMs": 2175
+    }
+  ]
+}
