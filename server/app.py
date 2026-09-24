@@ -10,14 +10,17 @@ mock stepper, fully offline. Config is read from a gitignored .env at the repo r
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from server.routes.agent_step import router as agent_router
 from server.routes.agent_plan import router as agent_plan_router
 from server.routes.agent_synthesize import router as agent_synthesize_router
 
-app = FastAPI(title="Privacy-Preserving Browser Agent — step server", version="0.1.0")
+app = FastAPI(title="Aavaran — privacy-aware agent server", version="0.2.0")
 
 # The extension calls from a chrome-extension:// origin; allow all for the demo.
 app.add_middleware(
@@ -31,9 +34,13 @@ app.include_router(agent_router)
 app.include_router(agent_plan_router)
 app.include_router(agent_synthesize_router)
 
+# Synthetic demo sites (bank KYC, webmail, social feed, checkout, registration form).
+# Every PII element carries data-pii / data-face ground-truth labels used by eval/.
+app.mount("/demo", StaticFiles(directory=Path(__file__).parent / "demo", html=True), name="demo")
+
 
 @app.get("/health")
 def health() -> dict:
-    from server.llm.client import resolve_provider, engine_label
+    from server.llm.client import provider_info
 
-    return {"ok": True, "provider": resolve_provider(), "engine": engine_label()}
+    return {"ok": True, **provider_info()}
