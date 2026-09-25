@@ -40,6 +40,7 @@ async function loadSettings() {
     humanize: stored.humanize ?? DEFAULTS.humanize,
     sendScreenshot: stored.sendScreenshot ?? DEFAULTS.sendScreenshot,
     streamResponses: stored.streamResponses ?? DEFAULTS.streamResponses,
+    language: stored.language ?? DEFAULTS.language,
   };
 }
 
@@ -1845,13 +1846,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg?.type === MSG.SAVE_SETTINGS) {
-    // Merge, not replace — different popup controls (perception mode, custom
-    // terms, per-site policy) each save independently; a full replace from one
-    // would silently wipe out whatever another one had just stored.
-    chrome.storage.local
-      .get(SETTINGS_KEY)
-      .then((r) => chrome.storage.local.set({ [SETTINGS_KEY]: { ...(r[SETTINGS_KEY] || {}), ...msg.payload } }))
-      .then(() => sendResponse({ ok: true }))
+    // Merge rather than replace — the popup only sends the fields its controls own,
+    // so a plain overwrite would silently drop any setting not in that call's payload
+    // (e.g. a saved language when perceptionMode alone changes, or vice versa).
+    loadSettings()
+      .then((current) => chrome.storage.local.set({ [SETTINGS_KEY]: { ...current, ...msg.payload } }))
+      .then(() => {
+        STATE.settings = { ...STATE.settings, ...msg.payload };
+        sendResponse({ ok: true });
+      })
       .catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true;
   }

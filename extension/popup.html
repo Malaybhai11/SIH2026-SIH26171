@@ -7,7 +7,7 @@
   </head>
   <body>
     <header>
-      <h1>Aavaran <span class="sub">private browser agent</span></h1>
+      <h1>Aavaran <span id="tagline" class="sub">private browser agent</span></h1>
       <span id="status" class="badge">IDLE</span>
     </header>
 
@@ -31,21 +31,26 @@
     <button id="openDashboard" class="link-btn">History &amp; Memory</button>
 
     <section class="input-row">
-      <textarea
-        id="prompt"
-        rows="2"
-        placeholder="e.g. Register me for this event — my name is Priya Sharma, phone 9876543210"
-      ></textarea>
+      <div class="prompt-row">
+        <textarea
+          id="prompt"
+          rows="2"
+          placeholder="e.g. Register me for this event — my name is Priya Sharma, phone 9876543210"
+        ></textarea>
+        <!-- Feature-detected in popup.js: hidden entirely when SpeechRecognition /
+             webkitSpeechRecognition isn't available, rather than erroring. -->
+        <button id="micBtn" type="button" class="mic-btn" title="Start voice input" hidden>&#127908;</button>
+      </div>
       <div class="controls">
         <label class="opt"
-          ><input type="checkbox" id="localOnly" /> Local-only (no server)</label
+          ><input type="checkbox" id="localOnly" /> <span id="lblLocalOnly">Local-only (no server)</span></label
         >
         <label class="opt"
-          ><input type="checkbox" id="multiAgent" /> Multi-agent mode</label
+          ><input type="checkbox" id="multiAgent" /> <span id="lblMultiAgent">Multi-agent mode</span></label
         >
         <div class="settings-row">
           <label class="opt" title="eco: faces + text rules only · balanced: + NER + MobileCLIP screen/regions (cached) · max: everything, every frame"
-            >Perception
+            ><span id="lblPerception">Perception</span>
             <select id="perceptionMode">
               <option value="eco">eco</option>
               <option value="balanced" selected>balanced</option>
@@ -53,10 +58,17 @@
             </select></label
           >
           <label class="opt" title="Attach the redacted, Set-of-Marks screenshot for a vision LLM"
-            ><input type="checkbox" id="sendScreenshot" checked /> Send redacted screenshot</label
+            ><input type="checkbox" id="sendScreenshot" checked /> <span id="lblSendScreenshot">Send redacted screenshot</span></label
           >
           <label class="opt" title="Simulate human pointer/keystroke timing (slower)"
-            ><input type="checkbox" id="humanize" /> Humanize input</label
+            ><input type="checkbox" id="humanize" /> <span id="lblHumanize">Humanize input</span></label
+          >
+          <label class="opt"
+            ><span id="lblLanguage">Language</span>
+            <select id="language">
+              <option value="en">English</option>
+              <option value="hi">हिन्दी</option>
+            </select></label
           >
           <label class="opt" title="Stream the server's reasoning as it's generated instead of waiting for the full response (experimental)"
             ><input type="checkbox" id="streamResponses" /> Stream responses</label
@@ -64,7 +76,7 @@
         </div>
         <input id="serverUrl" type="text" value="http://localhost:8000/agent/step" />
         <label class="opt"
-          >Max iterations
+          ><span id="lblMaxIterations">Max iterations</span>
           <input id="maxIterations" type="number" min="1" max="300" step="1" value="40" style="width: 4.5em" />
         </label>
         <div class="btns">
@@ -89,36 +101,36 @@
          integration pass can add more tab buttons + panels alongside these
          without touching the switching logic (it keys off data-tab). -->
     <div class="tabs" id="tabs">
-      <button id="tabTask" class="tab-btn active" data-tab="task">Task</button>
+      <button id="tabTask" class="tab-btn active" data-tab="task"><span id="tabTaskLabel">Task</span></button>
       <button id="tabPlan" class="tab-btn" data-tab="plan" hidden>
-        Plan <span id="planCount" class="pill">0</span>
+        <span id="tabPlanLabel">Plan</span> <span id="planCount" class="pill">0</span>
       </button>
       <button id="tabSubAgents" class="tab-btn" data-tab="subAgents" hidden>
-        Sub-agents <span id="subAgentsCount" class="pill">0</span>
+        <span id="tabSubAgentsLabel">Sub-agents</span> <span id="subAgentsCount" class="pill">0</span>
       </button>
       <button id="tabNotes" class="tab-btn" data-tab="notes" hidden>
-        Notes <span id="notesCount" class="pill">0</span>
+        <span id="tabNotesLabel">Notes</span> <span id="notesCount" class="pill">0</span>
       </button>
-      <button id="tabPrivacy" class="tab-btn" data-tab="privacy">Privacy X-ray</button>
+      <button id="tabPrivacy" class="tab-btn" data-tab="privacy"><span id="tabPrivacyLabel">Privacy X-ray</span></button>
       <button id="tabRedact" class="tab-btn" data-tab="redact">
-        Redaction <span id="redactCount" class="pill">0</span>
+        <span id="tabRedactLabel">Redaction</span> <span id="redactCount" class="pill">0</span>
       </button>
-      <button id="tabMetrics" class="tab-btn" data-tab="metrics">Metrics</button>
+      <button id="tabMetrics" class="tab-btn" data-tab="metrics"><span id="tabMetricsLabel">Metrics</span></button>
       <button id="tabLog" class="tab-btn" data-tab="log">
-        Log <span id="logCount" class="pill">0</span>
+        <span id="tabLogLabel">Log</span> <span id="logCount" class="pill">0</span>
       </button>
       <button id="tabSettings" class="tab-btn" data-tab="settings">Privacy settings</button>
     </div>
 
     <section class="panel" id="taskPanel">
       <div class="answer-head">
-        <h2>Answer</h2>
+        <h2 id="answerHeading">Answer</h2>
         <button id="copyAnswer" class="copy-btn" type="button">Copy</button>
       </div>
       <div id="answer" class="answer muted">—</div>
       <div id="collected" class="muted small"></div>
 
-      <div class="chip-group-label small muted">Try:</div>
+      <div id="tryLabel" class="chip-group-label small muted">Try:</div>
       <div id="chips" class="chips">
         <button class="chip" type="button">Register me for this event. My name is Priya Sharma, email priya.sharma@gmail.com, phone 9876543210, I live in Ahmedabad. Category Student. Tick consent and submit.</button>
         <button class="chip" type="button">What is the OTP that Bharat Digital Bank sent me?</button>
@@ -146,7 +158,7 @@
     <section class="panel" id="privacyPanel" hidden>
       <div class="xray-head">
         <button id="previewBtn" type="button">Preview this page</button>
-        <span id="previewInfo" class="small muted">What the server would receive — computed on this device, no network call.</span>
+        <span id="previewInfo" class="small muted" data-i18n-default="1">What the server would receive — computed on this device, no network call.</span>
       </div>
       <div id="xray" class="small"></div>
     </section>
