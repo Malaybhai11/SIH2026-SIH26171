@@ -66,6 +66,11 @@ _VLM_BASE = os.environ.get("VLM_BASE_URL", "").rstrip("/")
 _VLM_MODEL = os.environ.get("VLM_MODEL", "qwen2.5vl:7b")
 _VLM_KEY = os.environ.get("VLM_API_KEY", "")
 _VLM_IMAGES = os.environ.get("VLM_IMAGES", "1").lower() not in {"0", "false", "no"}
+# A CPU-only local open-weights VLM (the point of C1: no hosted API dependency)
+# is genuinely slow to decode a full agent-step response once an image is in
+# the prompt — routinely 30-90s on modest hardware. The hosted providers
+# (Inception, Anthropic) should still fail fast at 60s if something's wrong.
+_VLM_TIMEOUT_S = float(os.environ.get("VLM_TIMEOUT_S", "180"))
 
 _ACTION_KEYS = ("type", "targetId", "url", "amount", "text", "ms", "index", "value", "checked", "key", "fields")
 _ACTION_TYPES = {
@@ -117,7 +122,7 @@ def _extract_json(content: str) -> Any:
 
 
 def _chat_json(base: str, key: str, model: str, system: str, user_text: str, schema_name: str,
-               schema: dict, validate, image_b64: str | None = None) -> dict:
+               schema: dict, validate, image_b64: str | None = None, timeout_s: float = 60.0) -> dict:
     """One OpenAI-compatible chat call constrained to `schema`, one retry-with-correction.
     Falls back from json_schema -> json_object -> plain for servers that lack them."""
     import httpx
@@ -136,7 +141,7 @@ def _chat_json(base: str, key: str, model: str, system: str, user_text: str, sch
     ]
     headers = {"Authorization": f"Bearer {key}"} if key else {}
     last_err: Exception | None = None
-    with httpx.Client(timeout=60.0) as http:
+    with httpx.Client(timeout=timeout_s) as http:
         fmt_i = 0
         for attempt in range(3):
             body: dict[str, Any] = {"model": model, "temperature": 0, "messages": messages}
@@ -286,7 +291,7 @@ def _inception_step(req: dict) -> dict:
 def _vlm_step(req: dict) -> dict:
     image = req.get("redactedScreenshot") if (_VLM_IMAGES and req.get("sendScreenshot")) else None
     data = _chat_json(_VLM_BASE, _VLM_KEY, _VLM_MODEL, SYSTEM, build_user_message(req, has_image=bool(image)),
-                      "agent_step", _SCHEMA, _validate, image_b64=image)
+                      "agent_step", _SCHEMA, _validate, image_b64=image, timeout_s=_VLM_TIMEOUT_S)
     return _finalize(data)
 
 
@@ -363,7 +368,7 @@ def _inception_plan(req: dict) -> dict:
 
 def _vlm_plan(req: dict) -> dict:
     return _chat_json(_VLM_BASE, _VLM_KEY, _VLM_MODEL, _PLAN_SYSTEM, _build_plan_message(req),
-                      "agent_plan", _PLAN_SCHEMA, _validate_plan)
+                      "agent_plan", _PLAN_SCHEMA, _validate_plan, timeout_s=_VLM_TIMEOUT_S)
 
 
 def _anthropic_plan(req: dict) -> dict:
@@ -441,7 +446,7 @@ def _inception_synthesize(req: dict) -> dict:
 
 def _vlm_synthesize(req: dict) -> dict:
     return _chat_json(_VLM_BASE, _VLM_KEY, _VLM_MODEL, _SYNTH_SYSTEM, _build_synth_message(req),
-                      "agent_synthesize", _SYNTH_SCHEMA, _validate_synthesize)
+                      "agent_synthesize", _SYNTH_SCHEMA, _validate_synthesize, timeout_s=_VLM_TIMEOUT_S)
 
 
 def _anthropic_synthesize(req: dict) -> dict:

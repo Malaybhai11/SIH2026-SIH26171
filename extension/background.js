@@ -323,6 +323,10 @@ const SOFT_RISKY_LABEL_MAX_LEN = 24;
 // filling and submitting the form IS the task, not something blocking it.
 const LOGIN_TASK_RE = /\b(log\s*in|sign\s*in|login)\b.{0,80}\b(username|user\s*name|password|email)\b/i;
 
+// How long an auto-detected CAPTCHA pause waits for a human to resume before the
+// sub-agent gives up and ends as an ERROR instead of hanging forever.
+const CAPTCHA_PAUSE_TIMEOUT_MS = 10 * 60 * 1000;
+
 function isRiskyAction(a, snapshot) {
   if (a.type !== "click") return false;
   const node = (snapshot.sanitizedDom || []).find((n) => n.id === a.targetId);
@@ -734,6 +738,14 @@ function mirrorSubToState(sub) {
 // clear before claiming it for ourselves so two sub-agents never stomp each other.
 // Shared by the risky-action gate (a click that looks irreversible) and the token
 // release gate (B1: a token about to be typed somewhere it doesn't belong).
+// Nobody may be at the popup to answer (an unattended/scheduled run, or the user
+// just stepped away) — without a bound this blocks the current iteration forever,
+// which blocks the whole sub-agent loop forever with it (iteration only advances
+// once this call returns). The safe default on giving up is always deny, same as
+// cancellation — never auto-allow a risky action or a PII release just because
+// nobody answered in time.
+const CONFIRMATION_TIMEOUT_MS = 10 * 60 * 1000;
+
 async function awaitConfirmation(sub, ctx, { actionType, targetId = null, description, kind = "risky_action" }) {
   while (STATE.pendingConfirmation && !ctx.isCancelled()) {
     await new Promise((r) => setTimeout(r, 500));
@@ -748,27 +760,49 @@ async function awaitConfirmation(sub, ctx, { actionType, targetId = null, descri
   subLog(sub, `awaiting confirmation (${kind}): ${description}`, "warn");
   await ctx.onUpdate();
 
+  const deadline = Date.now() + CONFIRMATION_TIMEOUT_MS;
+  let timedOut = false;
   while (!STATE.pendingConfirmation?.resolution && !ctx.isCancelled()) {
+    if (Date.now() >= deadline) {
+      timedOut = true;
+      break;
+    }
     await new Promise((r) => setTimeout(r, 500));
   }
-  const resolution = ctx.isCancelled() ? "deny" : STATE.pendingConfirmation?.resolution;
+  const resolution = ctx.isCancelled() || timedOut ? "deny" : STATE.pendingConfirmation?.resolution;
   STATE.pendingConfirmation = null;
   STATE.status = prevStateStatus;
   sub.status = prevSubStatus;
   await ctx.onUpdate();
 
   const allowed = resolution === "allow";
-  subLog(sub, `${allowed ? "allowed by user" : `denied${ctx.isCancelled() ? " (cancelled)" : ""}`}: ${description}`, allowed ? "info" : "warn");
+  const why = ctx.isCancelled() ? " (cancelled)" : timedOut ? " (no answer — timed out)" : "";
+  subLog(sub, `${allowed ? "allowed by user" : `denied${why}`}: ${description}`, allowed ? "info" : "warn");
   return allowed;
 }
 
-async function waitWhilePaused(sub, ctx) {
-  if (!ctx.isPaused()) return;
+// timeoutMs is left unset for a human-requested pause (MSG.PAUSE_TASK) — they'll
+// resume when they're ready, no reason to give up on them. An AUTO-pause (e.g. the
+// captcha wall below) passes one: unattended/automated runs have nobody to click
+// Resume, and without a bound the sub-agent — and the global RUNNING flag with it —
+// would hang forever, silently swallowing every future RUN_TASK for the rest of
+// the browser session. Returns "timeout" if it gave up, "resumed" otherwise.
+async function waitWhilePaused(sub, ctx, { timeoutMs = null } = {}) {
+  if (!ctx.isPaused()) return "resumed";
   sub.status = STATUS.PAUSED;
   await ctx.onUpdate();
+  const deadline = timeoutMs != null ? Date.now() + timeoutMs : null;
   while (ctx.isPaused() && !ctx.isCancelled()) {
+    if (deadline != null && Date.now() >= deadline) {
+      // Only clear the global flag if nothing else (a real, still-relevant pause)
+      // claimed it in the meantime — this auto-pause is the one giving up, not
+      // necessarily the only reason pauseRequested is set right now.
+      if (STATE.pauseRequested) STATE.pauseRequested = false;
+      return "timeout";
+    }
     await new Promise((r) => setTimeout(r, 500));
   }
+  return "resumed";
 }
 
 // The PERCEIVE -> REDACT -> REASON -> ACT loop, parameterized over a single sub-agent's
@@ -901,8 +935,17 @@ async function runSubLoop(sub, ctx) {
       subLog(sub, sub.error, "warn");
       STATE.pauseRequested = true;
       log("captcha wall detected — auto-pausing until user resumes", "warn");
-      await waitWhilePaused(sub, ctx);
+      const outcome = await waitWhilePaused(sub, ctx, { timeoutMs: CAPTCHA_PAUSE_TIMEOUT_MS });
       if (ctx.isCancelled()) break;
+      if (outcome === "timeout") {
+        sub.status = STATUS.ERROR;
+        sub.error =
+          "This page kept showing a CAPTCHA/bot-check challenge and nobody resumed the task " +
+          `within ${Math.round(CAPTCHA_PAUSE_TIMEOUT_MS / 60000)} minutes, so it was stopped. ` +
+          "Solve the challenge and re-run the task if it wasn't a false positive.";
+        subLog(sub, sub.error, "error");
+        break;
+      }
       continue; // re-perceive fresh once resumed, rather than using this stale snapshot
     }
     // A login/sign-in page is only a "wall" (nothing to do, stop) when the task

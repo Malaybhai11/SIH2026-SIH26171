@@ -559,15 +559,30 @@ export function detectLoginWall() {
   return false;
 }
 
+// reCAPTCHA (and similar widgets) inject their OWN internal helper iframes on any
+// page that merely loads the script anywhere — most commonly the accessibility
+// "aframe" and the checkbox "anchor" frame, both permanently 0x0/hidden by design,
+// present even for invisible v3 scoring nobody ever sees. Only the interactive
+// challenge frame ("bframe" — the picture-grid puzzle) or a widget that's actually
+// VISIBLE on screen indicates a real wall blocking the page, so those hidden
+// helper iframes are excluded here; a plain `iframe[src*="recaptcha"]` selector
+// matched them and produced false positives on ordinary pages (see eval/results).
+const CAPTCHA_HIDDEN_IFRAME_RE = /recaptcha\/api2\/(aframe|anchor)/i;
+function hasVisibleCaptchaWidget() {
+  const candidates = document.querySelectorAll(
+    'iframe[src*="recaptcha"], .g-recaptcha, #recaptcha, iframe[src*="hcaptcha"], .h-captcha, #px-captcha, [class*="datadome"], iframe[src*="arkoselabs"], iframe[src*="funcaptcha"], #arkose, div[data-e2e="arkose-frame"], iframe[src*="challenges.cloudflare.com"], .cf-turnstile',
+  );
+  for (const el of candidates) {
+    if (el.tagName === "IFRAME" && CAPTCHA_HIDDEN_IFRAME_RE.test(el.src || "")) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 4 && r.height > 4) return true;
+  }
+  return false;
+}
+
 /** Heuristic: is the page a CAPTCHA / automated-bot challenge rather than real content? */
 export function detectCaptcha() {
-  if (
-    document.querySelector(
-      'iframe[src*="recaptcha"], .g-recaptcha, #recaptcha, iframe[src*="hcaptcha"], .h-captcha, #px-captcha, [class*="datadome"], iframe[src*="arkoselabs"], iframe[src*="funcaptcha"], #arkose, div[data-e2e="arkose-frame"], iframe[src*="challenges.cloudflare.com"], .cf-turnstile',
-    )
-  ) {
-    return true;
-  }
+  if (hasVisibleCaptchaWidget()) return true;
   if (document.querySelector("#challenge-running, #cf-challenge-running")) return true;
   const title = document.title || "";
   if (/just a moment|attention required/i.test(title)) return true;
