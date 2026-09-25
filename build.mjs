@@ -43,9 +43,20 @@ const SHIP_MODELS = [
   "onnx-community/bert-small-pii-detection-ONNX/onnx/model_quantized.onnx",
   "onnx-community/bert-small-pii-detection-ONNX/tokenizer.json",
   "onnx-community/bert-small-pii-detection-ONNX/config.json",
+  "tesseract/eng.traineddata.gz",
 ];
 // onnxruntime-web/webgpu bundle loads this runtime (WebGPU EP + WASM CPU EP).
 const ORT_FILES = ["ort-wasm-simd-threaded.asyncify.wasm", "ort-wasm-simd-threaded.asyncify.mjs"];
+// A1: Tesseract.js (WASM OCR, on-device) — worker script + the SIMD/LSTM-only core
+// (best accuracy/size tradeoff of the variants tesseract.js-core ships). Copied
+// straight from node_modules rather than re-downloaded: npm install already fetched
+// them, same as onnxruntime-web's runtime above.
+const TESSERACT_FILES = [
+  { from: "node_modules/tesseract.js/dist/tesseract.esm.min.js", to: "tesseract.esm.min.js" },
+  { from: "node_modules/tesseract.js/dist/worker.min.js", to: "worker.min.js" },
+  { from: "node_modules/tesseract.js-core/tesseract-core-simd-lstm.js", to: "tesseract-core-simd-lstm.js" },
+  { from: "node_modules/tesseract.js-core/tesseract-core-simd-lstm.wasm", to: "tesseract-core-simd-lstm.wasm" },
+];
 
 async function manifest() {
   const m = JSON.parse(await readFile(path.join(SRC, "manifest.json"), "utf8"));
@@ -80,6 +91,14 @@ async function copyStatic() {
   if (missing.length) console.warn(`[build] missing models (run: node scripts/fetch_models.mjs):\n  ${missing.join("\n  ")}`);
   await mkdir(path.join(OUT, "ort"), { recursive: true });
   for (const f of ORT_FILES) await cp(path.join("node_modules/onnxruntime-web/dist", f), path.join(OUT, "ort", f));
+  await mkdir(path.join(OUT, "tesseract"), { recursive: true });
+  for (const f of TESSERACT_FILES) {
+    if (!existsSync(f.from)) {
+      console.warn(`[build] missing ${f.from} (run: npm install)`);
+      continue;
+    }
+    await cp(f.from, path.join(OUT, "tesseract", f.to));
+  }
 }
 
 // Firefox: swap the offscreen-backed perception host for the in-process one.

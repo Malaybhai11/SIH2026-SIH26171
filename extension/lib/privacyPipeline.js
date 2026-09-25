@@ -223,10 +223,19 @@ export async function perceiveStep({ tabId, windowId, vault, settings, targetCou
 
     const scale = analysis.scale ?? snapshot.viewport.dpr ?? 1;
     const dev = (b) => ({ x: b.x * scale, y: b.y * scale, w: b.w * scale, h: b.h * scale });
+    // A1: OCR runs DOM-free in the engine (offscreen doc), so it has no Vault — mint
+    // tokens for its finds here, same origin-tagged provenance as every other token
+    // (B1's token release policy governs these identically to DOM-sourced values).
+    const pageOrigin = pageKey?.match(/^(https?:\/\/[^/]+)/)?.[1] ?? null;
+    const ocrBoxes = (analysis.ocrSpans || []).map((s) => {
+      const tok = vault.tokenFor(s.type, s.value, { origin: pageOrigin });
+      return { x: s.x, y: s.y, w: s.w, h: s.h, label: tok.slice(1, -1), pad: 2 };
+    });
     const boxes = [
       ...snapshot.piiBoxes.map((b) => ({ ...dev(b), label: b.label, pad: 2 })),
       ...(analysis.faces || []).map((f) => ({ x: f.x, y: f.y, w: f.w, h: f.h, label: "FACE", pad: Math.round(f.w * 0.12) })),
       ...(analysis.regions || []).filter((r) => r.sensitive).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, label: r.label.toUpperCase(), pad: 0 })),
+      ...ocrBoxes,
     ];
     const marks = settings.sendScreenshot ? snapshot.marks.map((m) => ({ ...dev(m), label: m.label })) : [];
     const red = await perception("redact", { screenshot, boxes, marks }).catch((e) => ({ error: String(e?.message || e) }));
@@ -247,7 +256,10 @@ export async function perceiveStep({ tabId, windowId, vault, settings, targetCou
         fields: snapshot.piiBoxes.filter((b) => b.source === "field").length,
         faces: (analysis.faces || []).length,
         regions: (analysis.regions || []).filter((r) => r.sensitive).length,
+        ocr: ocrBoxes.length,
       },
+      // debug/eval surface only — the actual redaction already used `boxes` above
+      ocrBoxes: (analysis.ocrSpans || []).map((s, i) => ({ ...s, label: ocrBoxes[i]?.label })),
       engineTimings: analysis.timings ?? null,
       timings: { analyzeMs: Math.round(tAnalyze - tDom), redactMs: Math.round(tRedact - tAnalyze) },
     };
