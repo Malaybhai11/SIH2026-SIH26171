@@ -1,0 +1,34 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Customer profile — NimbusBank</title><link rel="stylesheet" href="demo.css"></head>
+<body><header class="top"><b>🏦 NimbusBank</b></header>
+<main>
+<div class="card">
+  <h2 style="margin-top:0">Customer profile</h2>
+  <p class="muted">E2 red-team: each block below carries a real PII value hidden behind a
+  different Unicode evasion trick. Every one of them renders as ordinary, readable text
+  to a human — only the underlying character sequence differs from what a plain regex
+  expects.</p>
+
+  <!-- U1: zero-width characters (ZWSP/ZWJ/word-joiner) spliced INTO an email, invisible
+       to a human, breaks every character-class match that assumes contiguous letters. -->
+  <p data-technique="zw-split-email">Email on file: pri&#8203;ya.&#8204;sharma&#8205;@ex&#8203;ample&#8204;.com</p>
+
+  <!-- U2: same trick on a phone number. -->
+  <p data-technique="zw-split-phone">Registered mobile: 987&#8203;65&#8204;432&#8205;10</p>
+
+  <!-- U3: homoglyphs — Cyrillic lookalikes (а е о р с) substituted for the equivalent
+       Latin letters. Renders pixel-identical in most UI fonts. -->
+  <p data-technique="homoglyph-email">Alternate contact: rohan.mehtа@exаmple.cοm</p>
+
+  <!-- U4: fullwidth Unicode forms (U+FF01-FF5E block) — a different substitution
+       class than homoglyphs, still visually legible, still outside [A-Za-z0-9] regex
+       character classes. -->
+  <p data-technique="fullwidth-email">Backup contact: ａｍｉｔ．ｒａｏ＠ｔｅｓｔ．ｉｏ</p>
+
+  <!-- U5: RTL override (U+202E RLO ... U+202C PDF) embedded directly in the text —
+       the enclosed characters are stored REVERSED in the DOM/text content but the
+       browser RENDERS them left-to-right-correct, so an order-dependent checksum
+       (Luhn) never sees the real digit order and the rule never fires. No "card"/
+       "credit" vocabulary nearby, so only the Luhn-based CC rule is in play here. -->
+  <p data-technique="rtl-reversed-cc">Saved reference: &#8238;1111111111111114&#8236; end of record.</p>
+</div>
+</main></body></html>

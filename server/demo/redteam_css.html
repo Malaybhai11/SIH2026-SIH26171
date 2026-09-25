@@ -1,0 +1,43 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Support ticket #4471 — HelpDeskly</title><link rel="stylesheet" href="demo.css">
+<style>
+  /* C1/C2: PII in generated content — never a DOM text node, so a text-only
+     extractor (or a naive OCR-only screenshot scan that skips ordinary text
+     regions) never sees it at all. */
+  #before-pii::before { content: "Aadhaar on file: 234123412346"; display: block; }
+  #after-pii::after { content: " — call back at 9876543210"; }
+</style>
+</head>
+<body><header class="top"><b>🎧 HelpDeskly</b></header>
+<main>
+<div class="card">
+  <h2 style="margin-top:0">Ticket #4471 — internal notes</h2>
+
+  <div id="before-pii" data-technique="css-before-content"></div>
+  <p id="after-pii" data-technique="css-after-content">Customer requested a callback</p>
+
+  <!-- C3: aria-label is the SOLE accessible text (no visible text content at all) —
+       should still be picked up and redacted exactly like ordinary text (this is a
+       defensive-behaviour check, not expected to leak). -->
+  <span role="img" aria-label="PAN card number AAAPL1234C on file" data-technique="aria-label-sole-source" style="display:inline-block;width:20px;height:20px;background:#eef2ff;border-radius:4px"></span>
+
+  <!-- C4: aria-label carries PII but the element ALSO has real, unrelated visible
+       text — the extractor should use the visible text and never surface the
+       aria-label's PII at all (checks it's dropped, not merely unredacted). -->
+  <button type="button" aria-label="Cardholder Priya Sharma, card ending review" data-technique="aria-label-with-visible-text">View details</button>
+
+  <!-- C5: title attribute (hover tooltip) carries PII, element again has its own
+       unrelated visible text. Same expectation as C4: dropped, not leaked. -->
+  <p title="SSN 123-45-6789 verified" data-technique="title-attribute">Identity verification complete</p>
+
+  <!-- C6: PII is added to the DOM 1200ms after load — after a typical single
+       extraction pass, testing whether a later re-scan (as a real agent step would
+       do, polling the page) picks it up rather than permanently missing it. -->
+  <p id="late-pii" data-technique="delayed-mutation">Waiting for account lookup…</p>
+</div>
+</main>
+<script>
+  setTimeout(() => {
+    document.getElementById("late-pii").textContent = "Account holder: Vikram Singh, UPI vikram.singh@okhdfcbank";
+  }, 1200);
+</script>
+</body></html>
