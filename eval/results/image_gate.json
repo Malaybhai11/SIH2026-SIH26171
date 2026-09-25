@@ -1,0 +1,77 @@
+{
+  "generatedAt": "2026-09-25T18:32:57.502Z",
+  "note": "sendScreenshot is on (the ceiling) in every run here; needsScreenshot() then decides per-step whether an image is actually attached. Compare overallImageSentPct against task_e2e.mjs's pre-D3 behaviour, which sent an image on every single step whenever sendScreenshot was on (100%).",
+  "overallImageSentPct": 0,
+  "underFortyPercentBar": true,
+  "tasksPassed": "5/5",
+  "results": [
+    {
+      "task": "register",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 17445,
+      "steps": 5,
+      "imageSentN": 0,
+      "imageSentPct": 0,
+      "gateReasons": [
+        "DOM + screen state were enough",
+        "DOM + screen state were enough",
+        "DOM + screen state were enough",
+        "DOM + screen state were enough",
+        "DOM + screen state were enough"
+      ]
+    },
+    {
+      "task": "inbox",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 5102,
+      "steps": 1,
+      "imageSentN": 0,
+      "imageSentPct": 0,
+      "gateReasons": [
+        "DOM + screen state were enough"
+      ]
+    },
+    {
+      "task": "kyc",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 17841,
+      "steps": 5,
+      "imageSentN": 0,
+      "imageSentPct": 0,
+      "gateReasons": [
+        "DOM + screen state were enough",
+        "DOM + screen state were enough",
+        "DOM + screen state were enough",
+        "DOM + screen state were enough",
+        "DOM + screen state were enough"
+      ]
+    },
+    {
+      "task": "social",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 7158,
+      "steps": 1,
+      "imageSentN": 0,
+      "imageSentPct": 0,
+      "gateReasons": [
+        "DOM + screen state were enough"
+      ]
+    },
+    {
+      "task": "checkout",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 3083,
+      "steps": 1,
+      "imageSentN": 0,
+      "imageSentPct": 0,
+      "gateReasons": [
+        "DOM + screen state were enough"
+      ]
+    }
+  ]
+}
