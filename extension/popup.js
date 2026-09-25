@@ -65,6 +65,7 @@ const els = {
   previewInfo: $("previewInfo"),
   xray: $("xray"),
   perceptionMode: $("perceptionMode"),
+  redactionMode: $("redactionMode"),
   sendScreenshot: $("sendScreenshot"),
   humanize: $("humanize"),
   streamResponses: $("streamResponses"),
@@ -679,6 +680,7 @@ async function loadSettingsUi() {
   // one-time device-adaptive default, show that same default here instead of the
   // HTML's static "balanced" option, so the popup never displays a stale value.
   els.perceptionMode.value = s.perceptionMode || detectDeviceTier();
+  if (s.redactionMode) els.redactionMode.value = s.redactionMode;
   if (s.sendScreenshot !== undefined) els.sendScreenshot.checked = !!s.sendScreenshot;
   if (s.humanize !== undefined) els.humanize.checked = !!s.humanize;
   if (s.streamResponses !== undefined) els.streamResponses.checked = !!s.streamResponses;
@@ -693,6 +695,7 @@ function saveSettingsUi() {
     type: MSG.SAVE_SETTINGS,
     payload: {
       perceptionMode: els.perceptionMode.value,
+      redactionMode: els.redactionMode.value,
       sendScreenshot: els.sendScreenshot.checked,
       humanize: els.humanize.checked,
       streamResponses: els.streamResponses.checked,
@@ -700,7 +703,7 @@ function saveSettingsUi() {
     },
   });
 }
-for (const el of [els.perceptionMode, els.sendScreenshot, els.humanize, els.streamResponses]) el.addEventListener("change", saveSettingsUi);
+for (const el of [els.perceptionMode, els.redactionMode, els.sendScreenshot, els.humanize, els.streamResponses]) el.addEventListener("change", saveSettingsUi);
 els.language.addEventListener("change", () => {
   applyI18n(els.language.value);
   saveSettingsUi();

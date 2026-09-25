@@ -26,9 +26,9 @@ export async function launch({ headless = true, dist = "dist", width = 1280, hei
       "--no-default-browser-check",
       "--force-device-scale-factor=1",
       // Chrome refuses its setuid sandbox when launched as root (CI containers,
-      // this eval environment); --no-sandbox is standard practice for headless
-      // Chrome in a container and does not affect what the extension itself does.
-      "--no-sandbox",
+      // this eval environment); containerised eval runners are typically root,
+      // where the container itself is the isolation boundary instead.
+      ...(process.getuid && process.getuid() === 0 ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
       "--disable-dev-shm-usage",
       // Google-branded Chrome ignores --load-extension since v137 (CDP
       // Extensions.loadUnpacked would be the replacement, but that CDP domain

@@ -12,6 +12,10 @@ export const MSG = Object.freeze({
   PRIVACY_PREVIEW: "PRIVACY_PREVIEW", // payload: { tabId?, mode? } -> what would leave the device
   SAVE_SETTINGS: "SAVE_SETTINGS",
   WARMUP: "WARMUP", // popup opened: load models while the user types
+  // eval/test only: dispatch one action through the real rehydration + content-script
+  // execution path (same dispatchAction() a running task uses) without going through
+  // the LLM loop. Lets eval scripts prove token/surrogate resolution end to end.
+  EXECUTE_TEST_ACTION: "EXECUTE_TEST_ACTION", // payload: { tabId, action }
   // background -> popup
   STATE_UPDATE: "STATE_UPDATE",
   // background -> content script
@@ -62,6 +66,11 @@ export const DEFAULTS = Object.freeze({
   multiAgentEnabled: false,
   // "eco" (faces + text only) | "balanced" (+ CLIP screen/regions, cached) | "max"
   perceptionMode: "balanced",
+  // "token" (default): opaque [NAME_1]/[EMAIL_1] placeholders. "surrogate": a
+  // plausible-but-fake replacement of the same shape (e.g. "Asha Verma"), for LLM
+  // reasoning that reads better over fluent text. Real values never leave the device
+  // in either mode — only which placeholder shape represents them differs.
+  redactionMode: "token",
   // Human-like pointer/keystroke simulation. Off: direct DOM events, ~10x faster steps.
   humanize: false,
   // Attach the redacted, Set-of-Marks-annotated screenshot for the server VLM.

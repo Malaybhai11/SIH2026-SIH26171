@@ -106,6 +106,7 @@ async function extractAllFrames({ tabId, vault, useNer, targetCount }) {
     const merged = new Vault(res.vault);
     vault.map = merged.map;
     vault.values = merged.values;
+    vault.labels = merged.labels;
     vault.counters = merged.counters;
     vault.origins = merged.origins;
     results.set(fid, res);
@@ -203,7 +204,8 @@ export async function perceiveStep({ tabId, windowId, vault, settings, targetCou
   const tDom = performance.now();
 
   // the vault is already fully merged (extractAllFrames merges every frame's new
-  // tokens as it goes); this just clears the raw-value copy carried on the wire.
+  // tokens, including labels for surrogate-mode boxes — A3, as it goes); this just
+  // clears the raw-value copy carried on the wire.
   delete snapshot.vault;
   const pageKey = snapshot.pageKey;
   delete snapshot.pageKey; // engine cache key only
@@ -329,7 +331,14 @@ export function egressGate(body, vault) {
           s = s.split(v).join(tok);
         }
       }
-      if (hasResidualPII(s)) s = applySpans(s, detectRuleSpans(s), vault);
+      // A surrogate (e.g. a fake-but-well-formed email) is deliberately PII-shaped, so
+      // hasResidualPII's pattern check can't tell it apart from a real leak. Only
+      // re-tokenise spans that aren't already a known placeholder, so a clean
+      // surrogate string passes through untouched instead of being wrapped again.
+      if (hasResidualPII(s)) {
+        const spans = detectRuleSpans(s).filter((sp) => !vault.values.has(sp.value));
+        if (spans.length) s = applySpans(s, spans, vault);
+      }
       if (s !== x) {
         fixes++;
         if (where.length < 10) where.push(path);
