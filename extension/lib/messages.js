@@ -66,6 +66,8 @@ export const DEFAULTS = Object.freeze({
   humanize: false,
   // Attach the redacted, Set-of-Marks-annotated screenshot for the server VLM.
   sendScreenshot: true,
+  // Popup UI language — "en" | "hi". Never affects the agent's own reasoning/prompts.
+  language: "en",
 });
 
 // chrome.storage.session key holding the live task state object.
