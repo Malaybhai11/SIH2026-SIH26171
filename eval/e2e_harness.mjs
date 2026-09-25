@@ -14,14 +14,24 @@ export async function launch({ headless = true, dist = "dist", width = 1280, hei
     executablePath: CHROME,
     headless: headless ? "new" : false,
     defaultViewport: null,
-    // branded Chrome ignores --load-extension since v137; install over CDP instead
     pipe: true,
-    enableExtensions: [ext],
     args: [
       `--window-size=${width},${height}`,
       "--no-first-run",
       "--no-default-browser-check",
       "--force-device-scale-factor=1",
+      // Chrome refuses its setuid sandbox when launched as root (CI containers,
+      // this eval environment); --no-sandbox is standard practice for headless
+      // Chrome in a container and does not affect what the extension itself does.
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      // Google-branded Chrome ignores --load-extension since v137 (CDP
+      // Extensions.loadUnpacked would be the replacement, but that CDP domain
+      // isn't present on a plain open-source Chromium build) — this repo's
+      // pre-installed browser IS plain Chromium, where --load-extension still
+      // works in the new headless mode.
+      `--load-extension=${ext}`,
+      `--disable-extensions-except=${ext}`,
     ],
   });
   const swTarget = await browser.waitForTarget((t) => t.type() === "service_worker" && t.url().endsWith("background.js"), { timeout: 20000 });

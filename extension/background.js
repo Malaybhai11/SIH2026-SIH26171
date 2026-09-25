@@ -435,12 +435,51 @@ async function navAction(sub, action) {
   }
 }
 
+// D1: sanitizedDom ids from a non-root frame carry an "fN_" prefix (added when the
+// background script stitches every frame's snapshot into one, so ids stay unique
+// across frames). A frame's own content script only knows its OWN local ids
+// (it set the data-agent-id attributes), so the prefix has to come back off — and
+// the message has to be routed to that specific frame — before dispatch.
+function parseFrameTarget(id) {
+  const m = /^f(\d+)_(.+)$/.exec(id || "");
+  return m ? { frameId: Number(m[1]), localId: m[2] } : { frameId: 0, localId: id };
+}
+
 async function dispatchAction(sub, action) {
   // tokens ([PHONE_1], [NAME_2] ...) become real values only here, on-device
   action = rehydrateAction(action, VAULT);
   if (NAV_ACTIONS.has(action.type)) return navAction(sub, action);
+
+  if (action.type === "fill_form" && Array.isArray(action.fields)) {
+    const byFrame = new Map();
+    for (const f of action.fields) {
+      const { frameId, localId } = parseFrameTarget(f.targetId);
+      if (!byFrame.has(frameId)) byFrame.set(frameId, []);
+      byFrame.get(frameId).push({ ...f, targetId: localId });
+    }
+    const results = [];
+    let filled = 0;
+    for (const [frameId, fields] of byFrame) {
+      const res = await withTimeout(
+        chrome.tabs.sendMessage(
+          sub.tabId,
+          { type: MSG.EXECUTE_ACTION, action: { ...action, fields }, humanize: !!STATE.settings?.humanize },
+          { frameId },
+        ),
+        DEFAULTS.iterationTimeoutMs,
+        "content-action",
+      ).catch((e) => ({ ok: false, error: e.message, filled: 0, results: fields.map((f) => ({ targetId: f.targetId, ok: false, error: e.message })) }));
+      filled += res.filled || 0;
+      const prefix = frameId ? `f${frameId}_` : "";
+      results.push(...(res.results || []).map((r) => ({ ...r, targetId: prefix + r.targetId })));
+    }
+    return { ok: filled > 0, filled, results };
+  }
+
+  const { frameId, localId } = parseFrameTarget(action.targetId);
+  const localAction = action.targetId ? { ...action, targetId: localId } : action;
   return withTimeout(
-    chrome.tabs.sendMessage(sub.tabId, { type: MSG.EXECUTE_ACTION, action, humanize: !!STATE.settings?.humanize }),
+    chrome.tabs.sendMessage(sub.tabId, { type: MSG.EXECUTE_ACTION, action: localAction, humanize: !!STATE.settings?.humanize }, { frameId }),
     DEFAULTS.iterationTimeoutMs,
     "content-action",
   );
@@ -1667,6 +1706,8 @@ async function privacyPreview({ tabId, mode }) {
     redactionSummary: snapshot.redactionSummary,
     tokens: vault.catalog(),
     engine: stats,
+    frameCount: snapshot.frameCount ?? 1,
+    unreachableFrames: snapshot.unreachableFrames ?? [],
   };
 }
 

@@ -1,0 +1,28 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Checkout — KiranaKart</title><link rel="stylesheet" href="demo.css"></head>
+<body><header class="top"><b>🛒 KiranaKart</b><nav><a href="#">Cart (3)</a></nav></header>
+<main style="grid-template-columns:2fr 1fr">
+<div class="card">
+  <h2 style="margin-top:0">Payment</h2>
+  <!-- Real cross-origin embed (D1): SecurePay's card form lives on a DIFFERENT
+       origin (127.0.0.1 vs localhost — different host, so a different origin
+       even on the same port/scheme) and can only be read because the content
+       script is injected into every frame, not because it shares this page's
+       origin. src is set from script below so this page works from either host. -->
+  <iframe id="pay-frame" title="SecurePay payment form" style="width:100%;height:170px;border:1px solid #e4e7ec;border-radius:8px"></iframe>
+  <button type="button" style="margin-top:14px">Pay ₹2,347</button>
+</div>
+<div class="card">
+  <h3 style="margin-top:0">Deliver to</h3>
+  <p><span data-pii="NAME">Rohan Mehta</span><br><span data-pii="ADDRESS">House No. 12, Sector 15, Rohini, Delhi 110085</span><br>Phone: <span data-pii="PHONE">+91 98111 22334</span></p>
+  <h3>Order summary</h3>
+  <table><tr><td>Basmati rice 5 kg</td><td>₹899</td></tr><tr><td>Toor dal 2 kg</td><td>₹398</td></tr><tr><td>Masala chai 500 g</td><td>₹1,050</td></tr><tr><th>Total</th><th>₹2,347</th></tr></table>
+  <p class="muted">Order #402-1234567-8901234</p>
+</div>
+</main>
+<script>
+  // Point the iframe at whichever of localhost/127.0.0.1 the top page is NOT
+  // currently on, so this is a genuine cross-origin frame from either host.
+  const otherHost = location.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1";
+  document.getElementById("pay-frame").src = `${location.protocol}//${otherHost}:${location.port}/demo/payment_widget.html`;
+</script>
+</body></html>
