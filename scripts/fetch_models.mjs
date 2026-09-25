@@ -29,6 +29,18 @@ const CLIENT = [
     repo: "Xenova/mobileclip_s0",
     files: ["config.json", "preprocessor_config.json", "onnx/vision_model_fp16.onnx"],
   },
+  // OCR — PP-OCRv4 text detection + recognition (ONNX, ~15 MB total)
+  // ppocr_keys_v1.txt: 6623-char recognition dictionary, one character per line.
+  // Required by the CTC decoder: charset[k] = character for logit index k+1.
+  {
+    repo: "PaddlePaddle/PaddleOCR",
+    files: [
+      "inference/det/ch_PP-OCRv4_det_infer.onnx",
+      "inference/rec/ch_PP-OCRv4_rec_infer.onnx",
+      "ppocr/utils/ppocr_keys_v1.txt",
+    ],
+    out: "pp-ocrv4",
+  },
 ];
 
 const DEV = [

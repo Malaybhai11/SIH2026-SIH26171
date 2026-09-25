@@ -67,8 +67,6 @@ export function collectTextBlocks() {
     const b = blockOf(p);
     let blk = blocks.get(b);
     if (!blk) blocks.set(b, (blk = { text: "", parts: [] }));
-    // <br> and inline-block siblings render as separate lines: keep them apart so
-    // "Rohan Mehta<br>House No. 12" is not read as one token "MehtaHouse"
     if (blk.text && (n.previousSibling?.nodeName === "BR" || !/\s$/.test(blk.text) && p !== blk.lastParent && p.previousElementSibling?.nodeName === "BR")) blk.text += "\n";
     blk.parts.push({ node: n, start: blk.text.length });
     blk.text += n.data;
@@ -183,7 +181,6 @@ export function collectImageRois(limit = 40) {
     out.push({ id, kind, x: Math.round(v.x), y: Math.round(v.y), w: Math.round(v.w), h: Math.round(v.h), domHint: domHintFor(el) });
   };
   for (const el of document.querySelectorAll("img, video, canvas, picture, svg image, object, embed")) push(el, el.tagName.toLowerCase());
-  // CSS background images: only elements that plausibly are photos (avatar/photo/cover...)
   for (const el of document.querySelectorAll('[style*="background-image"], [class*="avatar" i], [class*="photo" i], [class*="profile" i], [class*="thumb" i]')) {
     if (out.length >= limit) break;
     const bg = getComputedStyle(el).backgroundImage;

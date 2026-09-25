@@ -89,6 +89,11 @@ export async function perceiveStep({ tabId, windowId, vault, settings, targetCou
       ...snapshot.piiBoxes.map((b) => ({ ...dev(b), label: b.label, pad: 2 })),
       ...(analysis.faces || []).map((f) => ({ x: f.x, y: f.y, w: f.w, h: f.h, label: "FACE", pad: Math.round(f.w * 0.12) })),
       ...(analysis.regions || []).filter((r) => r.sensitive).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, label: r.label.toUpperCase(), pad: 0 })),
+      // OCR-detected PII boxes (images / canvas / PDF pixel regions).
+      // analysis.ocrPiiBoxes are already in device pixels (engine.js converts from ROI-local).
+      // Labeled the same way as DOM-text PII (type as the box label) for consistent
+      // visual treatment and egress-gate coverage.
+      ...(analysis.ocrPiiBoxes || []).map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, label: b.label || b.type, pad: 1 })),
     ];
     const marks = settings.sendScreenshot ? snapshot.marks.map((m) => ({ ...dev(m), label: m.label })) : [];
     const red = await perception("redact", { screenshot, boxes, marks }).catch((e) => ({ error: String(e?.message || e) }));
@@ -105,10 +110,11 @@ export async function perceiveStep({ tabId, windowId, vault, settings, targetCou
       redactedBytes: red.bytes ?? 0,
       painted: red.painted ?? 0,
       boxCounts: {
-        text: snapshot.piiBoxes.filter((b) => b.source !== "field").length,
-        fields: snapshot.piiBoxes.filter((b) => b.source === "field").length,
-        faces: (analysis.faces || []).length,
+        text:    snapshot.piiBoxes.filter((b) => b.source !== "field").length,
+        fields:  snapshot.piiBoxes.filter((b) => b.source === "field").length,
+        faces:   (analysis.faces || []).length,
         regions: (analysis.regions || []).filter((r) => r.sensitive).length,
+        ocr:     (analysis.ocrPiiBoxes || []).length,
       },
       engineTimings: analysis.timings ?? null,
       timings: { analyzeMs: Math.round(tAnalyze - tDom), redactMs: Math.round(tRedact - tAnalyze) },

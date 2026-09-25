@@ -20,7 +20,8 @@ import * as ort from "onnxruntime-web/webgpu";
 import { FaceDetector } from "./faces.js";
 import { ClipClassifier } from "./clip.js";
 import { PiiNer } from "./ner.js";
-import { crop, dHash, hamming, resize } from "./image.js";
+import { OcrEngine } from "./ocr.js";
+import { crop, dHash, hamming } from "./image.js";
 import { fuseScreen, COARSE_OF } from "../screenFeatures.js";
 
 const FILES = {
@@ -31,6 +32,11 @@ const FILES = {
   ner: "models/onnx-community/bert-small-pii-detection-ONNX/onnx/model_quantized.onnx",
   nerTok: "models/onnx-community/bert-small-pii-detection-ONNX/tokenizer.json",
   nerCfg: "models/onnx-community/bert-small-pii-detection-ONNX/config.json",
+  ocrDet:  "models/pp-ocrv4/inference/det/ch_PP-OCRv4_det_infer.onnx",
+  ocrRec:  "models/pp-ocrv4/inference/rec/ch_PP-OCRv4_rec_infer.onnx",
+  // PP-OCR recognition character dictionary (6623 chars, one per line).
+  // Path mirrors repo-relative sub-path from fetch_models.mjs (outDir=pp-ocrv4).
+  ocrDict: "models/pp-ocrv4/ppocr/utils/ppocr_keys_v1.txt",
 };
 
 const CELL = 160; // ROI mosaic cell (4x4 grid in a 640 input)
@@ -65,6 +71,7 @@ export class PerceptionEngine {
     this.stats = { ep: null, models: {}, calls: {}, cache: { frame: 0, region: 0, ner: 0 } };
     this.nerCache = new LRU(8000);
     this.regionCache = new LRU(500);
+    this.ocrCache = new LRU(200); // OCR results cached by ROI content hash
     this.lastFrame = null;
     this.faceCache = new LRU(200);
     this.screenCache = new LRU(100);
@@ -126,6 +133,17 @@ export class PerceptionEngine {
             this.json(FILES.nerCfg),
           ]);
           m = new PiiNer(ort, s, tok, cfg);
+        } else if (key === "ocr") {
+          const [detSession, recSession, dictText] = await Promise.all([
+            this.session("ocrDet", FILES.ocrDet, { preferGpu: false }),
+            this.session("ocrRec", FILES.ocrRec, { preferGpu: false }),
+            // Fetch ppocr_keys_v1.txt and split into per-char array (6623 entries).
+            // charset[k] = character for CTC logit index k+1 (index 0 is blank).
+            fetch(this.urlFor(FILES.ocrDict)).then((r) => r.text()),
+          ]);
+          const charset = dictText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+          charset.push(" "); // PP-OCRv4 CTCLabelDecode (use_space_char=true: blank=0, dict=1..6623, space=6624)
+          m = new OcrEngine(ort, detSession, recSession, charset);
         }
         this.models[key] = m;
         return m;
@@ -321,6 +339,64 @@ export class PerceptionEngine {
       if (batch.length) this.time("clip", performance.now() - t2);
       this.stats.lastClipBatch = batch.length;
     }
+
+    // OCR for pixel-only ROIs: images, canvas, PDF viewer regions.
+    // Runs ONLY on the existing ROIs from devRois — no new ROI system.
+    // Results are cached by ROI content hash so unchanged regions are not re-OCR'd.
+    // Each recognized text line is passed through detectSpans() (the EXISTING function,
+    // not rewritten) to find PII. Detected PII bboxes are converted from ROI-local
+    // coordinates to screen coordinates for the redaction pipeline.
+    const ocrPiiBoxes = []; // {x,y,w,h,type,value,source,label} in device pixels
+    if (mode !== "eco") {
+      const t3 = performance.now();
+      const ocr = await this.load("ocr");
+      // faceRoi may be undefined when CLIP was skipped (eco mode, already guarded above)
+      const skipFace = typeof faceRoi !== "undefined" ? faceRoi : new Set();
+      // nerTag adapter so OCR can call engine NER for NAME/LOCATION spans
+      const nerTagForOcr = async (text) => (await this.ner([text]))[0];
+
+      for (const r of devRois) {
+        if (skipFace.has(r.id)) continue; // skip face-photo regions
+
+        const c   = crop(img, { x: r.dx, y: r.dy, w: r.dw, h: r.dh });
+        const key = `${dHash(c)}:${c.width}x${c.height}`;
+
+        // Cache by content hash — unchanged pixel regions skip inference
+        let piiLines = this.ocrCache.get(key);
+        if (piiLines === undefined) {
+          try {
+            piiLines = await ocr.runAndDetectPii(c, { nerTag: nerTagForOcr });
+          } catch (e) {
+            console.warn("[perception] OCR failed for roi", r.id, e);
+            piiLines = [];
+          }
+          this.ocrCache.set(key, piiLines);
+        }
+
+        // Map each PII-bearing OCR line from ROI-local coords to screen device pixels.
+        // bbox from ocr.runAndDetectPii() is ROI-local; add the ROI origin (r.dx, r.dy).
+        for (const line of piiLines) {
+          const bx = Math.round(r.dx + line.bbox.x);
+          const by = Math.round(r.dy + line.bbox.y);
+          const bw = Math.round(line.bbox.w);
+          const bh = Math.round(line.bbox.h);
+          for (const span of line.piiSpans) {
+            // Each PII span in the recognized text maps to the full line's bounding box.
+            // (Per-character geometry is not available from OCR; the box is already tight
+            //  around the text line from DBNet.)
+            ocrPiiBoxes.push({
+              x: bx, y: by, w: bw, h: bh,
+              type:   span.type,
+              value:  span.value,
+              source: "ocr",
+              label:  span.type,  // used by redact() for the typed label in the black box
+            });
+          }
+        }
+      }
+      this.time("ocr", performance.now() - t3);
+    }
+
     T.screen = T.faces;
     T.regions = performance.now();
 
@@ -335,12 +411,16 @@ export class PerceptionEngine {
       })(),
       faces: faces.map((f) => ({ x: Math.round(f.x), y: Math.round(f.y), w: Math.round(f.w), h: Math.round(f.h), score: f.score, via: f.via })),
       regions,
+      // OCR-detected PII boxes (device pixels): images/canvas/PDF pixel regions only.
+      // Each box is a DBNet text line where detectSpans() found PII.
+      // Passed through the existing redaction pipeline in privacyPipeline.js.
+      ocrPiiBoxes,
       cacheHit: false,
       timings: {
         decodeMs: Math.round(T.decode - T.start),
-        facesMs: Math.round(T.faces - T.decode),
-        clipMs: Math.round(T.regions - T.faces),
-        totalMs: Math.round(T.regions - T.start),
+        facesMs:  Math.round(T.faces - T.decode),
+        clipMs:   Math.round(T.regions - T.faces),
+        totalMs:  Math.round(T.regions - T.start),
       },
     };
     this.lastFrame = { hash, roiSig, mode, result };
