@@ -30,6 +30,7 @@
     "eval:injection": "node eval/injection_shield_eval.mjs",
     "eval:custom-terms": "node eval/custom_terms_eval.mjs",
     "eval:image-gate": "node eval/image_gate_eval.mjs",
+    "eval:surrogate": "node eval/surrogate_eval.mjs",
     "eval:summary": "node eval/summary.mjs"
   },
   "devDependencies": {
