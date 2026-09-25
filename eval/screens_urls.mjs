@@ -92,4 +92,21 @@ export const URLS = [
   ["checkout_payment", `${S}/demo/checkout.html`],
   ["checkout_payment", "https://checkout.stripe.dev/"],
   ["social_feed", `${S}/demo/social.html`],
+  // Indian public-service and consumer sites (A2: the classifier is trained almost
+  // entirely on global consumer/dev sites above — govt e-service portals in
+  // particular have a distinct visual language: bilingual headers, official
+  // emblems, dense tables, and (genuinely) very heavy CAPTCHA/bot-check use, which
+  // is exactly the "error_captcha" category this classifier most needs to get
+  // right without over-firing on ordinary forms. Public landing/login pages only —
+  // no authentication, no scraping past the login wall.
+  ...["https://www.irctc.co.in/nget/train-search", "https://parivahan.gov.in/parivahan/", "https://www.india.gov.in/",
+    "https://www.mygov.in/"].map((u) => ["article", u]),
+  ...["https://digilocker.gov.in/", "https://www.incometax.gov.in/iec/foportal/", "https://www.gst.gov.in/",
+    "https://uidai.gov.in/my-aadhaar/get-aadhaar.html", "https://www.epfindia.gov.in/site_en/index.php",
+    "https://www.onlinesbi.sbi/", "https://www.icicibank.com/", "https://www.hdfcbank.com/",
+    "https://www.indiapost.gov.in/", "https://www.passportindia.gov.in/AppOnlineProject/welcomeLink"].map((u) => ["login", u]),
+  ...["https://www.flipkart.com/", "https://www.myntra.com/", "https://www.bigbasket.com/",
+    "https://www.paytm.com/", "https://www.airindia.com/", "https://www.makemytrip.com/"].map((u) => ["product_listing", u]),
+  ...["https://data.gov.in/", "https://www.rbi.org.in/Scripts/BS_ViewMasCirculardetails.aspx",
+    "https://www.nseindia.com/", "https://www.bseindia.com/"].map((u) => ["dashboard_table", u]),
 ];
