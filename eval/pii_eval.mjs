@@ -9,9 +9,15 @@
 //      Our types are mapped from theirs (MAP below); labels we don't target (job
 //      titles, amounts, ...) count as neither TP nor FN, and predictions landing on
 //      them are not counted as FP (they ARE personal-ish, just not in our scheme).
-//   B. Indian synthetic set — 40 sentence templates x random Indian names/cities and
+//   B. Indian synthetic set — 36 sentence templates x random Indian names/cities and
 //      checksum-valid identifiers (Aadhaar/Verhoeff, GSTIN, PAN, UPI...), plus hard
 //      negatives (order ids, PNRs, prices, dates, versions, ISBNs, IFSC).
+//   C. Hindi/Devanagari synthetic set (B4) — same construction, but names, addresses,
+//      OTP/password/DOB/account labels and structured-PII digits are all rendered in
+//      Devanagari. Evaluated RULES-ONLY: the shipped NER model is English-only (see
+//      docs/model-contract.md), so Hindi name/place recall here comes entirely from
+//      the honorific-pattern and gazetteer rules in redact.js, not from NER — a
+//      Devanagari-capable NER model is tracked separately, not silently substituted.
 //
 // Metrics: span recall (a gold span is found if >= 50% of its characters are
 // covered by predictions), span precision (a predicted span is correct if >= 50% of
@@ -164,6 +170,65 @@ function indianCorpus(n) {
   return out;
 }
 
+// --- corpus C: Hindi / Devanagari synthetic (B4) ------------------------------------
+// Structured-PII digits render in Devanagari (०-९) via toDev(); PAN/GSTIN/UPI/email
+// stay in Latin+digit form, which is how they are actually written in real Hindi
+// text. Names/cities match the honorific and gazetteer rules in redact.js exactly —
+// this corpus tests THOSE rules, so it must use the same vocabulary they recognize.
+const toDev = (s) => String(s).replace(/\d/g, (d) => "०१२३४५६७८९"[+d]);
+// plain 10-digit Indian mobile, no prefix/separator — safe to toDev() directly
+// (an earlier version reused the English phone() and stripped "+91 ", which merges
+// the "91" into the digit run and makes it unmatchable; see git history)
+const phoneDigits10 = () => pick("6789") + digits(9);
+const HI_FIRST = ["रोहन", "अंजलि", "अनिल", "प्रिया", "विक्रम", "सुनीता", "अरुण", "कविता", "संदीप", "नेहा", "राजेश", "पूजा", "मनोज", "दीपिका", "करण", "इशा", "गौरव", "स्वाति", "अमित", "रीना"];
+const HI_LAST = ["शर्मा", "वर्मा", "गुप्ता", "अय्यर", "नायर", "रेड्डी", "पटेल", "मेहता", "सिंह", "कौर", "चौहान", "यादव", "अग्रवाल", "जोशी", "देशपांडे", "मुखर्जी", "बनर्जी", "कुलकर्णी", "तिवारी", "शेट्टी"];
+// must match the LOCATION gazetteer regex in redact.js exactly (this corpus tests that rule)
+const HI_CITY = ["मुंबई", "दिल्ली", "बेंगलुरु", "चेन्नई", "कोलकाता", "हैदराबाद", "पुणे", "अहमदाबाद", "जयपुर", "लखनऊ", "कोच्चि", "इंदौर", "भोपाल", "चंडीगढ़", "नागपुर", "सूरत", "पटना", "गुवाहाटी", "वाराणसी", "देहरादून", "रांची", "भुवनेश्वर", "मैसूरु", "कानपुर"];
+const HI_AREA = ["रोड", "मार्ग", "नगर", "कॉलोनी", "गली", "सेक्टर", "ब्लॉक", "मोहल्ला", "गाँव", "विहार"];
+const HI_HOUSE = ["मकान", "फ्लैट", "प्लॉट"];
+const HI_PSP = ["okaxis", "oksbi", "okhdfcbank", "okicici", "ybl", "paytm"];
+
+const HI_TEMPLATES = [
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); return T("श्री ", ["NAME", `${f} ${l}`], " का आधार ", ["AADHAAR", toDev(aadhaar())], " है।"); },
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); return T("श्रीमती ", ["NAME", `${f} ${l}`], " (पैन: ", ["PAN", pan()], ") ने रिटर्न फाइल किया।"); },
+  () => T("आपका ओटीपी ", ["OTP", toDev(digits(6))], " है। किसी के साथ साझा न करें।"),
+  () => T(["OTP", toDev(digits(6))], " ही आपका ओटीपी है, ५ मिनट में समाप्त हो जाएगा।"),
+  () => { const f = pick(HI_FIRST); return T("संपर्क करें: ", ["NAME", f], " को ", ["PHONE", toDev(phoneDigits10())], " पर।"); },
+  () => { const f = pick(FIRST), l = pick(LAST); return T("मेल भेजें ", ["EMAIL", email(f, l)], " पर।"); },  // Latin username: real Indian email local-parts are ASCII, even in Hindi text
+  () => { const f = pick(FIRST); return T("₹५०० भेजें ", ["UPI", `${f.toLowerCase()}${digits(2)}@${pick(HI_PSP)}`], " पर।"); },  // UPI VPA handles are Latin too
+  () => { const h = pick(HI_HOUSE), a = pick(HI_AREA), c = pick(HI_CITY); return T(["ADDRESS", `${h} नं. ${toDev(String(1 + Math.floor(rnd() * 400)))}, ${a} ${toDev(String(1 + Math.floor(rnd() * 40)))}, ${c}`], " पर डिलीवर करें।"); },
+  () => T("जीएसटीआईएन ", ["GSTIN", gstin()], " — कुल राशि ₹", toDev(String(1000 + Math.floor(rnd() * 90000))), "।"),
+  () => T("कार्ड नंबर ", ["CC", toDev(card())], ", सीवीवी ", ["CVV", toDev(digits(3))], " है।"),
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST), c = pick(HI_CITY); return T(["NAME", `${f} ${l}`], " पिछले साल ", ["LOCATION", c], " से आए थे।"); },
+  () => { const c = pick(HI_CITY); return T("पोस्ट किया गया ", ["LOCATION", c], " से · २घं पहले"); },
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); return T("नॉमिनी: ", ["NAME", `${f} ${l}`], ", रिश्ता: पति/पत्नी"); },
+  () => T("जन्म तिथि: ", ["DOB", `${toDev(String(1 + Math.floor(rnd() * 28)))}/०${toDev(String(1 + Math.floor(rnd() * 9)))}/१९${toDev(String(70 + Math.floor(rnd() * 29)))}`], " रक्त समूह बी+"),
+  () => T("खाता संख्या: ", ["BANK_ACCOUNT", toDev(digits(12))], " आईएफएससी SBIN000", toDev(digits(4))),
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); return T("धन्यवाद ", ["NAME", f], "! मैंने नोट्स ", ["NAME", `${pick(HI_FIRST)} ${pick(HI_LAST)}`], " के साथ साझा किए।"); },
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); return T("डॉ ", ["NAME", `${f} ${l}`], " ने मरीज को देखा और दवा लिखी।"); },
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); return T("कुमारी ", ["NAME", `${f} ${l}`], " को पुरस्कार मिला।"); },
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); const c = pick(HI_CITY); return T("नमस्ते टीम, ", ["NAME", `${f} ${l}`], " ", ["LOCATION", c], " से आईएसआरओ सत्र में शामिल होंगे।"); },
+  () => T("मेरा पासवर्ड ", ["PASSWORD", `${pick(["Hunter", "Sunrise", "Welcome"])}@${digits(4)}`], " है — पहली बार लॉगिन के बाद बदलें।"),
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); const ef = pick(FIRST), el = pick(LAST); return T("संपर्क करें ", ["NAME", `${f} ${l}`], " को ", ["EMAIL", email(ef, el)], " या ", ["PHONE", toDev(phoneDigits10())], " पर।"); },
+  () => { const h = pick(HI_HOUSE), c = pick(HI_CITY); return T(["ADDRESS", `${h} ७, हाईटेक सिटी रोड, माधापुर, ${c}`], ", तेलंगाना"); },
+  () => T("पिन कोड ", ["PINCODE", toDev(pin())], " वाले क्षेत्र में सेवा उपलब्ध है।"),
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); return T("ड्राइवर ", ["NAME", `${f} ${l}`], " (", ["PHONE", toDev(phoneDigits10())], ") सफेद स्विफ्ट में आ रहे हैं।"); },
+  // hard negatives: must produce NO spans (Hindi reference/order/date/version context)
+  () => T("ऑर्डर संख्या ", digits(3), "-", digits(7), " १२ मार्च २०२५ को भेजा गया।"),
+  () => T("पीएनआर ", toDev(digits(10)), " — ट्रेन ", toDev(digits(5)), ", कोच बी", toDev(String(1 + Math.floor(rnd() * 9))), "।"),
+  () => T("कुल देय राशि: ₹", toDev(String(1 + Math.floor(rnd() * 99))), ",", toDev(digits(3)), " जीएसटी सहित।"),
+  () => T("चंद्रयान-3 ने २३ अगस्त २०२३ को चंद्रमा के दक्षिणी ध्रुव के पास लैंड किया।"),
+  () => T("पीएसएलवी-सी", String(50 + Math.floor(rnd() * 20)), " मिशन ने ", String(2 + Math.floor(rnd() * 30)), " उपग्रह कक्षा में स्थापित किए।"),
+  () => T("सेंसेक्स ", toDev(String(60 + Math.floor(rnd() * 20))), ",", toDev(digits(3)), " अंक पर बंद हुआ।"),
+  () => T("डाउनलोड गति ९४.६ Mbps, पिंग १२ ms।"),
+  () => T("१२,३४५ उपयोगकर्ताओं द्वारा ४.५ रेटिंग, १,०२,३९८ डाउनलोड"),
+];
+function hindiCorpus(n) {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(HI_TEMPLATES[i % HI_TEMPLATES.length]());
+  return out;
+}
+
 // --- scoring ---------------------------------------------------------------------
 function covered(a, spans) {
   let c = 0;
@@ -216,9 +281,10 @@ async function evaluate(corpus, withNer) {
 
 const ai4p = await loadAi4privacy();
 const indian = indianCorpus(360);
+const hindi = hindiCorpus(340);
 const report = {
   generatedAt: new Date().toISOString(),
-  engine: "rules (regex + Luhn/Verhoeff/GSTIN validators) + BERT-small PII NER INT8 (29 MB)",
+  engine: "rules (regex + Luhn/Verhoeff/GSTIN validators) + BERT-small PII NER INT8 (29 MB, English-only)",
   ai4privacy_en: {
     source: `ai4privacy/pii-masking-200k english, first ${ai4p.length} rows`,
     rulesOnly: await evaluate(ai4p, false),
@@ -229,6 +295,16 @@ const report = {
     rulesOnly: await evaluate(indian, false),
     rulesPlusNer: await evaluate(indian, true),
   },
+  hindi_synthetic: {
+    source: `${hindi.length} Devanagari sentences from ${HI_TEMPLATES.length} templates (${HI_TEMPLATES.length - 7} with PII, 7 hard-negative)`,
+    note:
+      "rules-only by construction — the shipped NER model is English-only (docs/model-contract.md), so this " +
+      "number is exactly what B4's rule-based work (Devanagari digit normalization, honorific names, gazetteer " +
+      "locations, Hindi label words) achieves alone. See perType: structured/labelled PII (AADHAAR/OTP/PHONE/" +
+      "ADDRESS/DOB/BANK_ACCOUNT/PINCODE/PAN/GSTIN/UPI/CC/CVV) is rule-covered; bare names with no honorific and " +
+      "no NER are the known, expected gap — a multilingual NER model closes it (tracked separately).",
+    rulesOnly: await evaluate(hindi, false),
+  },
 };
 await mkdir("eval/results", { recursive: true });
 await writeFile("eval/results/pii.json", JSON.stringify(report, null, 2));
@@ -237,5 +313,7 @@ show("ai4privacy  rules only", report.ai4privacy_en.rulesOnly);
 show("ai4privacy  rules + NER", report.ai4privacy_en.rulesPlusNer);
 show("indian      rules only", report.indian_synthetic.rulesOnly);
 show("indian      rules + NER", report.indian_synthetic.rulesPlusNer);
+show("hindi       rules only", report.hindi_synthetic.rulesOnly);
 console.log("per type (indian, rules+NER):", JSON.stringify(report.indian_synthetic.rulesPlusNer.perType));
 console.log("per type (ai4privacy, rules+NER):", JSON.stringify(report.ai4privacy_en.rulesPlusNer.perType));
+console.log("per type (hindi, rules only):", JSON.stringify(report.hindi_synthetic.rulesOnly.perType));

@@ -20,6 +20,7 @@ const s = {
   criterion2_piiDetection: pii && {
     indian: { recall: pii.indian_synthetic.rulesPlusNer.recall, precision: pii.indian_synthetic.rulesPlusNer.precision, f1: pii.indian_synthetic.rulesPlusNer.f1 },
     ai4privacy: { recall: pii.ai4privacy_en.rulesPlusNer.recall, precision: pii.ai4privacy_en.rulesPlusNer.precision, f1: pii.ai4privacy_en.rulesPlusNer.f1 },
+    hindi_devanagari: pii.hindi_synthetic && { recall: pii.hindi_synthetic.rulesOnly.recall, precision: pii.hindi_synthetic.rulesOnly.precision, f1: pii.hindi_synthetic.rulesOnly.f1, note: "rules-only, no Hindi NER model — see pii.json" },
     faces_widerVal: faces && { precision: faces.precision, recall: faces.recall },
   },
   criterion3_redactionPrecision: red && red.aggregate,
@@ -36,6 +37,7 @@ Generated ${new Date().toISOString().slice(0, 10)} from \`eval/results/*.json\`.
 | 1. Visual context accuracy (25%) | Screen category, **unseen websites** (${screens?.protocol ?? ""}) | **${pctf(screens?.accuracy.clipPlusDomPriors)}** (pixels-only zero-shot: ${pctf(screens?.accuracy.zeroShotClip)}) |
 | 2. PII detection (20%) | Indian PII set — recall / precision / F1 | **${pii?.indian_synthetic.rulesPlusNer.recall} / ${pii?.indian_synthetic.rulesPlusNer.precision} / ${pii?.indian_synthetic.rulesPlusNer.f1}** |
 | | ai4privacy (public, English) — recall / precision / F1 | ${pii?.ai4privacy_en.rulesPlusNer.recall} / ${pii?.ai4privacy_en.rulesPlusNer.precision} / ${pii?.ai4privacy_en.rulesPlusNer.f1} |
+| | Hindi/Devanagari set, rules only (no Hindi NER) — recall / precision / F1 | ${pii?.hindi_synthetic?.rulesOnly.recall ?? "n/a"} / ${pii?.hindi_synthetic?.rulesOnly.precision ?? "n/a"} / ${pii?.hindi_synthetic?.rulesOnly.f1 ?? "n/a"} |
 | | Faces, WIDER FACE val (≥24 px) — precision / recall | ${faces?.precision} / ${faces?.recall} |
 | 3. Redaction precision (20%) | Pixel precision / pixel recall / sensitive objects covered | **${red?.aggregate.pixelPrecision} / ${red?.aggregate.pixelRecall} / ${red ? `${Math.round(red.aggregate.objectRecall * red.aggregate.gtObjects)}/${red.aggregate.gtObjects}` : ""}** |
 | 4. Client resources (20%) | Engine memory (WASM+weights), eco / balanced | ${lat?.modes.eco?.engineMemoryMB} MB / ${lat?.modes.balanced?.engineMemoryMB} MB |

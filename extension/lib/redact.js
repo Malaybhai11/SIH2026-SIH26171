@@ -110,6 +110,22 @@ export function aadhaarValid(num) {
   return s.length === 12 && /^[2-9]/.test(s) && verhoeffValid(s);
 }
 
+// Devanagari digits (U+0966-U+096F) -> ASCII, one codepoint for one codepoint, so every
+// other rule's offsets stay valid against the ORIGINAL string. Structured numeric PII
+// (Aadhaar, phone, PIN, OTP, bank account...) written in Hindi numerals is invisible to
+// every digit-based rule above without this — it's the single highest-leverage fix for
+// Hindi/Devanagari content, since the surrounding words rarely gate detection at all.
+const DEVANAGARI_DIGITS = "०१२३४५६७८९";
+export function normalizeDevanagariDigits(text) {
+  if (!text || !/[०-९]/.test(text)) return text;
+  let out = "";
+  for (const ch of text) {
+    const i = DEVANAGARI_DIGITS.indexOf(ch);
+    out += i >= 0 ? String(i) : ch;
+  }
+  return out;
+}
+
 const GST_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 export function gstinValid(g) {
   const s = String(g).toUpperCase();
@@ -130,7 +146,8 @@ const HOUSE = String.raw`(?:(?:Flat|House|Plot|Door|Shop|Qtr|H|D)\.?\s*(?:No\.?)
 const ADDR_WORD = String.raw`(?:Road|Rd|Marg|Nagar|Colony|Street|St|Lane|Ln|Sector|Layout|Cross|Main|Block|Phase|Society|Apartments?|Apts?|Enclave|Vihar|Puram|Chowk|Bazaar|Bazar|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Court|Ct|Way|Place|Pl|Square|Sq|Terrace|Parkway|Pkwy|Highway|Hwy|Gali|Mohalla|Extension|Ext|Tower|Residency|Heights|Park)`;
 
 // identifiers that look like phone numbers but follow a reference label
-const REF_CONTEXT = /\b(?:PNR|order|invoice|ref(?:erence)?|txn|transaction(?: id)?|UTR|tracking|AWB|ticket|booking|train|flight)\s*(?:no\.?|number|id)?\s*[:#]?\s*$/i;
+const REF_CONTEXT =
+  /\b(?:ISBN(?:-1[03])?|PNR|order|invoice|ref(?:erence)?|txn|transaction(?: id)?|UTR|tracking|AWB|ticket|booking|train|flight)\s*(?:no\.?|number|id)?\s*[:#]?\s*$|(?:ऑर्डर|इनवॉइस|चालान|संदर्भ|लेनदेन|ट्रैकिंग|टिकट|बुकिंग|पीएनआर)(?:\s?(?:संख्या|नंबर|क्रमांक))?\s*[:#]?\s*$/i;
 
 const RULES = [
   { type: "SECRET", re: /\b(?:sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g },
@@ -174,7 +191,7 @@ const RULES = [
       const spaced = /\s/.test(v);
       return d.length >= 10 && d.length <= 15 && (strong || (spaced && d.length <= 13)) && !/^\d{4}-\d{2}-\d{2}/.test(v.trim());
     },
-    notAfter: /\b(?:ISBN(?:-1[03])?|PNR|order|invoice|ref(?:erence)?|txn|transaction(?: id)?|UTR|tracking|AWB|ticket|booking)\s*(?:no\.?|number|id)?\s*[:#]?\s*$/i,
+    notAfter: REF_CONTEXT,
   },
   // Indian/US street address: house marker, words up to a street keyword, then up to
   // five ", Segment" parts (locality, city, state) and an optional PIN code.
@@ -188,16 +205,72 @@ const RULES = [
     valid: (v) => v.trim().split(/\s+/).length >= 3 || /\b[1-9]\d{2}\s?\d{3}\b/.test(v),
   },
   { type: "PINCODE", re: /\b(?:PIN|Pincode|Pin code|Postal code|ZIP)\s*[:\-]?\s*([1-9]\d{2}\s?\d{3})\b/gi, group: 1 },
+
+  // --- Hindi / Devanagari -----------------------------------------------------------
+  // Structured numeric PII (Aadhaar, phone, PIN...) is already caught by the rules
+  // above once Devanagari digits are normalized (see detectRuleSpans). What's added
+  // here is what normalization can't reach: Hindi label words that GATE a match
+  // (OTP/password/DOB/account rules above all require an English label) and two
+  // rule-based (non-NER) detectors — an honorific-triggered name pattern and a small
+  // gazetteer of Indian place names — since the on-device NER model is English-only
+  // (see docs/model-contract.md) and a Devanagari-capable model is separate, larger
+  // work (tracked as its own item, not silently skipped here).
+  // NOTE: `\b` is defined over ASCII `\w` and does not treat Devanagari letters as
+  // word characters, so `\bहिन्दी\b`-style boundaries silently never match — every
+  // Hindi literal below is bounded with an explicit Devanagari-block lookaround
+  // instead: (?<![ऀ-ॿ]) ... (?![ऀ-ॿ]).
+  { type: "OTP", re: /(?<![ऀ-ॿ])ओटीपी(?![ऀ-ॿ])[^0-9\n]{0,15}(\d{4,8})\b/g, group: 1 },
+  { type: "OTP", re: /(\d{4,8})\s*(?:ही\s+)?(?:आपका|आपकी)\s+ओटीपी\s+है/g, group: 1 },
+  { type: "PASSWORD", re: /(?<![ऀ-ॿ])पासवर्ड(?![ऀ-ॿ])\s*(?:है|:|=)?\s*(\S{4,64})/g, group: 1, valid: (v) => /\d/.test(v) || /[^\p{L}]/u.test(v) },
+  { type: "CVV", re: /(?<![ऀ-ॿ])(?:सीवीवी|सीवीसी)(?![ऀ-ॿ])\s*(?:है|:|=|नंबर)?\s*(\d{3,4})\b/g, group: 1 },
+  { type: "DOB", re: /(?<![ऀ-ॿ])जन्म\s?तिथि(?![ऀ-ॿ])\s*[:\-]?\s*(\d{1,2}[\/\-. ]\d{1,2}[\/\-. ]\d{2,4})/g, group: 1 },
+  {
+    type: "BANK_ACCOUNT",
+    re: /(?<![ऀ-ॿ])खाता\s?(?:संख्या|नंबर|क्रमांक)(?![ऀ-ॿ])[^0-9\n]{0,15}((?:[Xx*]{2,}\s?)?\d[\d\s-]{2,20}\d)\b/g,
+    group: 1,
+    valid: (v) => v.replace(/\D/g, "").length >= 6,
+  },
+  { type: "PINCODE", re: /(?<![ऀ-ॿ])पिन\s?कोड(?![ऀ-ॿ])\s*[:\-]?\s*([1-9]\d{2}\s?\d{3})\b/g, group: 1 },
+  // house marker + a run of comma-separated Devanagari/number segments, at least one of
+  // which is a recognized street/area word. Word ORDER varies a lot in real addresses
+  // ("Sector 15" puts the number after the word; a locality can come before or after
+  // the street) — matching by presence rather than a fixed position, unlike the
+  // English rule above, is what makes this robust to that.
+  {
+    type: "ADDRESS",
+    re: /(?<![ऀ-ॿ])(?:मकान|फ्लैट|प्लॉट|दुकान)(?![ऀ-ॿ])[^,\n]{0,24}(?:,\s*[ऀ-ॿ0-9][ऀ-ॿ0-9.' -]*){2,7}/g,
+    valid: (v) => /सेक्टर|रोड|मार्ग|नगर|कॉलोनी|गली|ब्लॉक|मोहल्ला|चौक|गाँव|गांव|तहसील|ज़िला|जिला|एन्क्लेव|विहार|पुरम/.test(v) && v.trim().split(/\s+/).length >= 4,
+  },
+  // honorific + Devanagari name (1-4 words) — rule-based, not NER; see note above.
+  // Each continuation word is refused if it's a function word, a PII-label word, or a
+  // gazetteer place name, so the match stops at the name instead of running into
+  // "...का आधार" or "...से आई" — a place name right after the name (no comma) still
+  // goes unclaimed here and is picked up separately by the LOCATION rule below.
+  {
+    type: "NAME",
+    re: /(?<![ऀ-ॿ])(?:श्री|श्रीमती|सुश्री|कुमारी|डॉ\.?)(?![ऀ-ॿ])\s+([ऀ-ॿ]+(?:\s+(?!(?:का|की|के|है|हैं|में|से|को|पर|ने|और|या|यह|वह|जी|साहब|महोदय|महोदया|आधार|पासवर्ड|ओटीपी|कार्ड|संख्या|नंबर|फोन|मोबाइल|जन्म|तिथि|खाता|पिन|कोड|मुंबई|मुम्बई|दिल्ली|बेंगलुरु|बैंगलोर|चेन्नई|कोलकाता|हैदराबाद|पुणे|अहमदाबाद|जयपुर|लखनऊ)(?![ऀ-ॿ]))[ऀ-ॿ]+){0,3})/g,
+    group: 1,
+    valid: (v) => !/^(?:जी|साहब|महोदय|महोदया)$/.test(v.trim()),
+  },
+  // small gazetteer of major Indian cities/metros written in Devanagari
+  {
+    type: "LOCATION",
+    re: /(?<![ऀ-ॿ])(?:मुंबई|मुम्बई|दिल्ली|नई\s?दिल्ली|बेंगलुरु|बैंगलोर|चेन्नई|कोलकाता|हैदराबाद|पुणे|अहमदाबाद|जयपुर|लखनऊ|कोच्चि|इंदौर|भोपाल|चंडीगढ़|नागपुर|सूरत|पटना|गुवाहाटी|वाराणसी|देहरादून|रांची|भुवनेश्वर|तिरुवनंतपुरम|मैसूरु|कानपुर|नासिक|कोयंबटूर|विशाखापत्तनम|अमृतसर)(?![ऀ-ॿ])/g,
+  },
 ];
 
 /** Rule layer: spans on the ORIGINAL text. */
 export function detectRuleSpans(text) {
   if (!text || typeof text !== "string") return [];
+  // Devanagari-digit-normalized copy, same length/offsets as `text` (see the function's
+  // own comment) — every rule above matches against this, so a Hindi-numeral Aadhaar or
+  // phone number is caught by the SAME digit-based rules as its Latin-numeral form.
+  const norm = normalizeDevanagariDigits(text);
   const spans = [];
   for (const rule of RULES) {
     rule.re.lastIndex = 0;
     let m;
-    while ((m = rule.re.exec(text))) {
+    while ((m = rule.re.exec(norm))) {
       if (m[0].length === 0) {
         rule.re.lastIndex++;
         continue;
@@ -210,10 +283,13 @@ export function detectRuleSpans(text) {
         start = m.index + m[0].lastIndexOf(value);
       }
       // trim trailing separators / whitespace
-      const trimmed = value.replace(/[\s,.;:-]+$/, "");
-      if (!trimmed) continue;
-      if (rule.valid && !rule.valid(trimmed, m, text)) continue;
-      if (rule.notAfter && rule.notAfter.test(text.slice(Math.max(0, start - 24), start))) continue;
+      const trimmedNorm = value.replace(/[\s,.;:-]+$/, "");
+      if (!trimmedNorm) continue;
+      // re-slice from the ORIGINAL text so Devanagari digits are preserved in the
+      // returned value (offsets are identical between norm and text — see above)
+      const trimmed = text.slice(start, start + trimmedNorm.length);
+      if (rule.valid && !rule.valid(trimmedNorm, m, norm)) continue;
+      if (rule.notAfter && rule.notAfter.test(norm.slice(Math.max(0, start - 24), start))) continue;
       spans.push({ start, end: start + trimmed.length, type: rule.type, value: trimmed, source: "rule" });
     }
   }

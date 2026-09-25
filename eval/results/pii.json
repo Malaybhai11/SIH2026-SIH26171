@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-24T17:24:56.168Z",
-  "engine": "rules (regex + Luhn/Verhoeff/GSTIN validators) + BERT-small PII NER INT8 (29 MB)",
+  "generatedAt": "2026-09-25T07:53:38.053Z",
+  "engine": "rules (regex + Luhn/Verhoeff/GSTIN validators) + BERT-small PII NER INT8 (29 MB, English-only)",
   "ai4privacy_en": {
     "source": "ai4privacy/pii-masking-200k english, first 500 rows",
     "rulesOnly": {
@@ -79,7 +79,7 @@
       "f1": 0.854,
       "goldSpans": 743,
       "predictedSpans": 668,
-      "nerMsPerSentence": 16,
+      "nerMsPerSentence": 16.2,
       "perType": {
         "ADDRESS": {
           "recall": 0.624,
@@ -260,7 +260,7 @@
         "sentences": 120,
         "falseAlarms": 1
       },
-      "nerMsPerSentence": 5.4,
+      "nerMsPerSentence": 5.6,
       "perType": {
         "AADHAAR": {
           "recall": 1,
@@ -351,6 +351,104 @@
           "recall": 1,
           "falsePositives": 0,
           "n": 10
+        }
+      }
+    }
+  },
+  "hindi_synthetic": {
+    "source": "340 Devanagari sentences from 32 templates (25 with PII, 7 hard-negative)",
+    "note": "rules-only by construction — the shipped NER model is English-only (docs/model-contract.md), so this number is exactly what B4's rule-based work (Devanagari digit normalization, honorific names, gazetteer locations, Hindi label words) achieves alone. See perType: structured/labelled PII (AADHAAR/OTP/PHONE/ADDRESS/DOB/BANK_ACCOUNT/PINCODE/PAN/GSTIN/UPI/CC/CVV) is rule-covered; bare names with no honorific and no NER are the known, expected gap — a multilingual NER model closes it (tracked separately).",
+    "rulesOnly": {
+      "recall": 0.766,
+      "precision": 1,
+      "f1": 0.867,
+      "goldSpans": 367,
+      "predictedSpans": 281,
+      "hardNegatives": {
+        "sentences": 80,
+        "falseAlarms": 0
+      },
+      "nerMsPerSentence": 0,
+      "perType": {
+        "AADHAAR": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 11
+        },
+        "ADDRESS": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 21
+        },
+        "BANK_ACCOUNT": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 11
+        },
+        "CC": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 11
+        },
+        "CVV": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 11
+        },
+        "DOB": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 11
+        },
+        "EMAIL": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 21
+        },
+        "GSTIN": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 11
+        },
+        "LOCATION": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 33
+        },
+        "NAME": {
+          "recall": 0.338,
+          "falsePositives": 0,
+          "n": 130
+        },
+        "OTP": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 22
+        },
+        "PAN": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 11
+        },
+        "PASSWORD": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 11
+        },
+        "PHONE": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 31
+        },
+        "PINCODE": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 10
+        },
+        "UPI": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 11
         }
       }
     }

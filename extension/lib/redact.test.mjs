@@ -14,6 +14,7 @@ import {
   aadhaarValid,
   gstinValid,
   detectRuleSpans,
+  normalizeDevanagariDigits,
 } from "./redact.js";
 
 test("luhn", () => {
@@ -122,4 +123,67 @@ test("NER spans merge with rules; rules win overlaps", async () => {
   const nerTag = async () => [{ start: 0, end: 12, type: "NAME" }, { start: 17, end: 29, type: "NAME" }];
   const r = await redactText("Rajesh Kumar at rajesh@k.com", { nerTag, vault: new Vault() });
   assert.equal(r.text, "[NAME_1] at [EMAIL_1]");
+});
+
+// Hindi / Devanagari — B4. `\b` does not treat Devanagari as a word character (it's
+// defined over ASCII \w), so every Hindi rule is bounded with an explicit script
+// lookaround instead; these tests exist specifically to catch that class of regression.
+test("Devanagari digit normalization is index-preserving", () => {
+  assert.equal(normalizeDevanagariDigits("०१२३४५६७८९"), "0123456789");
+  assert.equal(normalizeDevanagariDigits("२३४५ ६७८९ ०१२४"), "2345 6789 0124");
+  assert.equal(normalizeDevanagariDigits("no digits here").length, "no digits here".length);
+  // mixed-script string: every non-digit codepoint must survive untouched, same length
+  const mixed = "राशि ₹१२,३४५ है";
+  assert.equal(normalizeDevanagariDigits(mixed).length, mixed.length);
+});
+
+test("structured PII in Devanagari numerals hits the same rules as Latin numerals", () => {
+  const types = (s) => detectRuleSpans(s).map((x) => x.type);
+  assert.deepEqual(types("आधार २३४५ ६७८९ ०१२४ है"), ["AADHAAR"]); // Verhoeff-valid
+  // invalid check digit -> not tagged AADHAAR; still conservatively caught as a
+  // phone-shaped digit run (same "redact first, mislabel is fine" fallback as the
+  // Luhn-invalid-card case above) rather than leaking untouched
+  assert.ok(!types("आधार २३४५ ६७८९ ०१२५ है").includes("AADHAAR"));
+  assert.deepEqual(types("संपर्क करें ९८७६५४३२१० पर"), ["PHONE"]);
+  assert.deepEqual(types("आपका ओटीपी ४८२९१३ है"), ["OTP"]);
+  assert.deepEqual(types("जन्म तिथि: १४/०८/१९९५"), ["DOB"]);
+  assert.deepEqual(types("पिन कोड ११०६८५"), ["PINCODE"]);
+  // the raw value keeps the original Devanagari digits, not the normalized ASCII copy
+  assert.equal(detectRuleSpans("आधार २३४५ ६७८९ ०१२४ है")[0].value, "२३४५ ६७८९ ०१२४");
+});
+
+test("Hindi label words gate OTP/password/DOB/bank-account the same way English labels do", () => {
+  const types = (s) => detectRuleSpans(s).map((x) => x.type);
+  assert.deepEqual(types("मेरा पासवर्ड Hunter@2026 है।"), ["PASSWORD"]);
+  assert.deepEqual(types("खाता संख्या ५०१००२३४५६७८ में जमा किया गया।"), ["BANK_ACCOUNT"]);
+  assert.deepEqual(types("५५१९२० ही आपका ओटीपी है।"), ["OTP"]);
+});
+
+test("Hindi addresses: house marker + area words, order-independent", () => {
+  const types = (s) => detectRuleSpans(s).map((x) => x.type);
+  assert.deepEqual(types("मकान नं. १२, सेक्टर १५, रोहिणी, दिल्ली - पिन कोड ११०६८५"), ["ADDRESS"]);
+  assert.deepEqual(types("प्लॉट ७, हाईटेक सिटी रोड, माधापुर, हैदराबाद, तेलंगाना"), ["ADDRESS"]);
+  // no house marker + no street word -> not an address
+  assert.deepEqual(types("रोहिणी, दिल्ली में मौसम अच्छा है"), ["LOCATION"]);
+});
+
+test("Hindi honorific names stop at function words and don't swallow a following place", () => {
+  const types = (s) => detectRuleSpans(s).map((x) => x.type);
+  const t1 = detectRuleSpans("श्री रोहन शर्मा का आधार २३४५ ६७८९ ०१२४ है।");
+  assert.deepEqual(t1.map((x) => [x.type, x.value]), [["NAME", "रोहन शर्मा"], ["AADHAAR", "२३४५ ६७८९ ०१२४"]]);
+  // a city right after the name (no comma) is NOT absorbed into NAME — it's still
+  // caught, just by the separate LOCATION gazetteer rule instead
+  const t2 = detectRuleSpans("श्रीमती अंजलि गुप्ता मुंबई से आई हैं।");
+  assert.deepEqual(t2.map((x) => [x.type, x.value]), [["NAME", "अंजलि गुप्ता"], ["LOCATION", "मुंबई"]]);
+});
+
+test("Hindi hard negatives: reference numbers and plain prose stay untouched", () => {
+  for (const s of [
+    "ऑर्डर संख्या 402-1234567 पर कार्रवाई हो चुकी है",
+    "टिकट संख्या ४५२१३६७८९०, ट्रेन १२०१०",
+    "चंद्रयान-3 ने 23 अगस्त 2023 को चंद्रमा पर लैंड किया",
+    "कुल राशि ₹१२,३४५ है",
+  ]) {
+    assert.deepEqual(detectRuleSpans(s), [], s);
+  }
 });
