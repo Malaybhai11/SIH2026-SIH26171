@@ -58,7 +58,12 @@ Decide the SINGLE next step. Return one object:
     { "type": "save_image", "targetId": "<image node id>", "text": "<optional caption>" }  download an image from the page (e.g. a post's photo) — NOT sent to the page, saved locally
     { "type": "compile_report", "text": "<report title / closing summary>" }               bundle everything collected so far (items, notes, saved images) into a downloadable CSV + Markdown report
   Put any items you can already read from THIS snapshot into "extracted"
-  (merged into accumulated data, de-duped by href/text).
+  (merged into accumulated data, de-duped by href/text). Each item has
+  author/text/timestamp/href plus an optional "fields" object for whatever else the
+  collection is actually about — {"title":"...","price":"..."} for products,
+  {"col1":"...","col2":"..."} for table rows, {"rating":"4.5"} for reviews, etc.
+  Use "text" for the item's main content (a quote, a headline) and "fields" for its
+  other attributes; don't invent new top-level keys.
 
   status "done" + "answer" (natural language). For a collection task also fill
   "extractedItems" with the cleaned final list.
