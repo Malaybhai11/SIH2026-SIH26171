@@ -12,8 +12,19 @@ import { domScreenFeatures } from "../extension/lib/screenFeatures.js";
 const DIR = "eval/.cache/screens_ds";
 const RECAPTURE = process.argv.includes("--recapture");
 await mkdir(DIR, { recursive: true });
-const exe = ["/usr/bin/google-chrome", "/usr/bin/chromium"].find(existsSync);
-const browser = await puppeteer.launch({ executablePath: exe, headless: "new", args: ["--no-first-run", "--lang=en-US"] });
+const exe = process.env.CHROME_PATH || ["/usr/bin/google-chrome", "/usr/bin/chromium"].find(existsSync);
+const proxy = process.env.HTTPS_PROXY || process.env.https_proxy;
+const browser = await puppeteer.launch({
+  executablePath: exe,
+  headless: "new",
+  args: [
+    "--no-first-run",
+    "--lang=en-US",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    ...(proxy ? [`--proxy-server=${proxy}`, "--proxy-bypass-list=localhost,127.0.0.1,::1,<local>"] : []),
+  ],
+});
 
 const jobs = URLS.map(([label, url], i) => ({ i, label, url, f: `${DIR}/${String(i).padStart(3, "0")}` }));
 let next = 0;
