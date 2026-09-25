@@ -1,0 +1,8 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Attack: rotated PII</title><link rel="stylesheet" href="../demo.css"></head>
+<body><header class="top"><b>🎯 Red-team — rotated / transformed PII</b><nav><a href="index.html">← suite</a></nav></header>
+<main><section class="card" style="padding:60px 40px">
+<h2 style="margin:0 0 30px">Watermarked document</h2>
+<p style="margin:0 0 40px">Aadhaar (rotated 35°): <span data-pii="AADHAAR" style="display:inline-block;transform:rotate(35deg);transform-origin:left center">2345 6789 0124</span></p>
+<p style="margin:0 0 40px">Email (skewed): <span data-pii="EMAIL" style="display:inline-block;transform:skewX(-25deg)">anjali.gupta@example.com</span></p>
+<p style="margin:0 0 10px">Phone (3D rotated): <span data-pii="PHONE" style="display:inline-block;transform:perspective(200px) rotateY(45deg)">98765 43210</span></p>
+</section></main></body></html>

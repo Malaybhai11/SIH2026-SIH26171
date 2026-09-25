@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Attack: canvas-bitmap PII</title><link rel="stylesheet" href="../demo.css"></head>
+<body><header class="top"><b>🎯 Red-team — canvas-bitmap PII</b><nav><a href="index.html">← suite</a></nav></header>
+<main><section class="card">
+<h2 style="margin:0 0 10px">Scanned form preview</h2>
+<p class="muted">This PII is drawn onto a &lt;canvas&gt; as pixels by the script below — there is no DOM text node containing it anywhere, the same way a scanned photo of a form has none. No text-based rule can see it; this is exactly what on-device OCR (A1) exists to close. <b>Expected to leak until A1 ships</b> — this page exists to make that honest, not to hide it.</p>
+<canvas id="c" width="420" height="120" data-pii="AADHAAR" data-pii-visual="1" style="border:1px solid #e4e7ec;border-radius:8px;background:#fff"></canvas>
+<script>
+  const ctx = document.getElementById("c").getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, 420, 120);
+  ctx.fillStyle = "#1d2433"; ctx.font = "16px sans-serif";
+  ctx.fillText("Applicant: Rohan Mehta", 16, 32);
+  ctx.font = "bold 20px monospace";
+  ctx.fillText("2345 6789 0124", 16, 68);
+  ctx.font = "13px sans-serif"; ctx.fillStyle = "#667085";
+  ctx.fillText("Aadhaar number — rendered as an image, not text", 16, 96);
+</script>
+</section></main></body></html>

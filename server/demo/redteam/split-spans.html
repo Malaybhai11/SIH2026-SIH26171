@@ -1,0 +1,9 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Attack: split-node PII</title><link rel="stylesheet" href="../demo.css"></head>
+<body><header class="top"><b>🎯 Red-team — split-node PII</b><nav><a href="index.html">← suite</a></nav></header>
+<main><section class="card">
+<h2 style="margin:0 0 10px">Support ticket #4471</h2>
+<p class="muted">Real pages sometimes split text across sibling elements for layout or (occasionally) to defeat naive scrapers. Every character below is its own &lt;span&gt;, with no whitespace in the source between them — the visible, rendered text is unchanged.</p>
+<p>Customer email: <span data-pii="EMAIL"><span>r</span><span>o</span><span>h</span><span>a</span><span>n</span><span>.</span><span>v</span><span>e</span><span>r</span><span>m</span><span>a</span><span>@</span><span>e</span><span>x</span><span>a</span><span>m</span><span>p</span><span>l</span><span>e</span><span>.</span><span>c</span><span>o</span><span>m</span></span></p>
+<p>Aadhaar on file: <span data-pii="AADHAAR"><span>2</span><span>3</span><span>4</span><span>5</span><span> </span><span>6</span><span>7</span><span>8</span><span>9</span><span> </span><span>0</span><span>1</span><span>2</span><span>4</span></span></p>
+<p>Phone: <span data-pii="PHONE"><b>9</b><b>8</b><b>7</b><b>6</b><b>5</b> <i>4</i><i>3</i><i>2</i><i>1</i><i>0</i></span> (bold/italic mix, still one line of text)</p>
+</section></main></body></html>

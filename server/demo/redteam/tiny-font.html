@@ -1,0 +1,9 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Attack: tiny-font PII</title><link rel="stylesheet" href="../demo.css"></head>
+<body><header class="top"><b>🎯 Red-team — tiny-font PII</b><nav><a href="index.html">← suite</a></nav></header>
+<main><section class="card">
+<h2 style="margin:0 0 10px">Order receipt</h2>
+<p class="muted">A model that reads text (not pixels) sees this PII regardless of rendered size. The question is whether the on-screen redaction box still covers it — a box below 1 visual pixel is easy to drop by accident.</p>
+<p>Order total: ₹2,340. Billing contact (2px font): <span data-pii="EMAIL" style="font-size:2px">priya.sharma@example.com</span></p>
+<p>Internal ref (0.1px, still selectable/real text — not display:none): <span data-pii="AADHAAR" style="font-size:0.1px">2345 6789 0124</span> — end of internal ref.</p>
+<p>Normal-size control (should also be caught): <span data-pii="PHONE">98765 43210</span></p>
+</section></main></body></html>

@@ -1,0 +1,277 @@
+{
+  "generatedAt": "2026-09-25T07:59:58.630Z",
+  "protocol": "real extension (Puppeteer + Chrome) against 6 PII-evasion pages, ground truth data-pii; caught = raw value absent from the payload sent to the server",
+  "aggregate": {
+    "elements": 15,
+    "caught": 10,
+    "leakRate": 0.333
+  },
+  "byTechnique": {
+    "canvas bitmap": {
+      "caught": 0,
+      "total": 1,
+      "leaks": [
+        {
+          "type": "AADHAAR",
+          "adversarial": false,
+          "visualOnly": true,
+          "pixelCoverage": 0,
+          "textLeaked": false
+        }
+      ]
+    },
+    "lookalike unicode": {
+      "caught": 1,
+      "total": 3,
+      "leaks": [
+        {
+          "type": "EMAIL",
+          "adversarial": true,
+          "visualOnly": false,
+          "pixelCoverage": 0,
+          "textLeaked": true
+        },
+        {
+          "type": "PHONE",
+          "adversarial": true,
+          "visualOnly": false,
+          "pixelCoverage": 0,
+          "textLeaked": true
+        }
+      ]
+    },
+    "rotated": {
+      "caught": 3,
+      "total": 3,
+      "leaks": []
+    },
+    "split spans": {
+      "caught": 3,
+      "total": 3,
+      "leaks": []
+    },
+    "svg text": {
+      "caught": 1,
+      "total": 3,
+      "leaks": [
+        {
+          "type": "NAME",
+          "adversarial": false,
+          "visualOnly": false,
+          "pixelCoverage": 0,
+          "textLeaked": false
+        },
+        {
+          "type": "AADHAAR",
+          "adversarial": false,
+          "visualOnly": false,
+          "pixelCoverage": 0,
+          "textLeaked": false
+        }
+      ]
+    },
+    "tiny font": {
+      "caught": 2,
+      "total": 2,
+      "leaks": []
+    }
+  },
+  "promptInjectionBaseline": {
+    "page": "prompt-injection.html",
+    "instructions": 3,
+    "reachedPayload": 1,
+    "note": "informational — B2 (prompt-injection shield) is not built yet; a hidden instruction reaching the payload is an expected, tracked gap, not a redaction failure"
+  },
+  "pages": [
+    {
+      "page": "canvas-bitmap.html",
+      "technique": "canvas bitmap",
+      "elements": [
+        {
+          "type": "AADHAAR",
+          "value": "",
+          "visualOnly": true,
+          "adversarial": false,
+          "pixelCoverage": 0,
+          "textLeaked": false,
+          "caught": false
+        }
+      ],
+      "caught": 0,
+      "total": 1
+    },
+    {
+      "page": "lookalike-unicode.html",
+      "technique": "lookalike unicode",
+      "elements": [
+        {
+          "type": "EMAIL",
+          "value": "rohan.vermа@exаmple.com",
+          "visualOnly": false,
+          "adversarial": true,
+          "pixelCoverage": 0,
+          "textLeaked": true,
+          "caught": false
+        },
+        {
+          "type": "PHONE",
+          "value": "９８７６５ ４３２１０",
+          "visualOnly": false,
+          "adversarial": true,
+          "pixelCoverage": 0,
+          "textLeaked": true,
+          "caught": false
+        },
+        {
+          "type": "EMAIL",
+          "value": "rohan.verma@example.com",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 1,
+          "textLeaked": false,
+          "caught": true
+        }
+      ],
+      "caught": 1,
+      "total": 3
+    },
+    {
+      "page": "prompt-injection.html",
+      "technique": "prompt injection",
+      "elements": [],
+      "caught": 0,
+      "total": 0
+    },
+    {
+      "page": "rotated.html",
+      "technique": "rotated",
+      "elements": [
+        {
+          "type": "AADHAAR",
+          "value": "2345 6789 0124",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 1,
+          "textLeaked": false,
+          "caught": true
+        },
+        {
+          "type": "EMAIL",
+          "value": "anjali.gupta@example.com",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 1,
+          "textLeaked": false,
+          "caught": true
+        },
+        {
+          "type": "PHONE",
+          "value": "98765 43210",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 0.89,
+          "textLeaked": false,
+          "caught": true
+        }
+      ],
+      "caught": 3,
+      "total": 3
+    },
+    {
+      "page": "split-spans.html",
+      "technique": "split spans",
+      "elements": [
+        {
+          "type": "EMAIL",
+          "value": "rohan.verma@example.com",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 1,
+          "textLeaked": false,
+          "caught": true
+        },
+        {
+          "type": "AADHAAR",
+          "value": "2345 6789 0124",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 0.93,
+          "textLeaked": false,
+          "caught": true
+        },
+        {
+          "type": "PHONE",
+          "value": "98765 43210",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 0.96,
+          "textLeaked": false,
+          "caught": true
+        }
+      ],
+      "caught": 3,
+      "total": 3
+    },
+    {
+      "page": "svg-text.html",
+      "technique": "svg text",
+      "elements": [
+        {
+          "type": "NAME",
+          "value": "Name: Kavya Nair",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 0,
+          "textLeaked": false,
+          "caught": false
+        },
+        {
+          "type": "AADHAAR",
+          "value": "2345 6789 0124",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 0,
+          "textLeaked": false,
+          "caught": false
+        },
+        {
+          "type": "EMAIL",
+          "value": "kavya.nair@example.com",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 1,
+          "textLeaked": false,
+          "caught": true
+        }
+      ],
+      "caught": 1,
+      "total": 3
+    },
+    {
+      "page": "tiny-font.html",
+      "technique": "tiny font",
+      "elements": [
+        {
+          "type": "EMAIL",
+          "value": "priya.sharma@example.com",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 1,
+          "textLeaked": false,
+          "caught": true
+        },
+        {
+          "type": "PHONE",
+          "value": "98765 43210",
+          "visualOnly": false,
+          "adversarial": false,
+          "pixelCoverage": 1,
+          "textLeaked": false,
+          "caught": true
+        }
+      ],
+      "caught": 2,
+      "total": 2
+    }
+  ]
+}
