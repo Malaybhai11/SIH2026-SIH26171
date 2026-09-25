@@ -1,0 +1,517 @@
+{
+  "generatedAt": "2026-09-25T17:41:07.464Z",
+  "images": 20,
+  "errors": 0,
+  "objectRecall": 1,
+  "imagesFullyCaught": "20/20",
+  "results": [
+    {
+      "url": "/demo/img/ocr/id_card_1.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 7222
+    },
+    {
+      "url": "/demo/img/ocr/id_card_2.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 3295
+    },
+    {
+      "url": "/demo/img/ocr/id_card_3.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 3300
+    },
+    {
+      "url": "/demo/img/ocr/id_card_4.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 3295
+    },
+    {
+      "url": "/demo/img/ocr/id_card_5.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 3293
+    },
+    {
+      "url": "/demo/img/ocr/id_card_6.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 3300
+    },
+    {
+      "url": "/demo/img/ocr/id_card_7.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 3291
+    },
+    {
+      "url": "/demo/img/ocr/id_card_8.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 3292
+    },
+    {
+      "url": "/demo/img/ocr/id_card_9.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 3290
+    },
+    {
+      "url": "/demo/img/ocr/id_card_10.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 3305
+    },
+    {
+      "url": "/demo/img/ocr/id_card_11.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 3298
+    },
+    {
+      "url": "/demo/img/ocr/id_card_12.html",
+      "kind": "id_card",
+      "goldTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "foundTypes": [
+        "NAME",
+        "AADHAAR"
+      ],
+      "missed": [],
+      "boxesPainted": 6,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "NAME",
+        "DOB",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "ADDRESS",
+        "AADHAAR",
+        "AADHAAR",
+        "AADHAAR"
+      ],
+      "perceptionMs": 3296
+    },
+    {
+      "url": "/demo/img/ocr/receipt_1.html",
+      "kind": "canvas_receipt",
+      "goldTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "foundTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "missed": [],
+      "boxesPainted": 3,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "PHONE"
+      ],
+      "perceptionMs": 4786
+    },
+    {
+      "url": "/demo/img/ocr/receipt_2.html",
+      "kind": "canvas_receipt",
+      "goldTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "foundTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "missed": [],
+      "boxesPainted": 3,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "PHONE"
+      ],
+      "perceptionMs": 3296
+    },
+    {
+      "url": "/demo/img/ocr/receipt_3.html",
+      "kind": "canvas_receipt",
+      "goldTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "foundTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "missed": [],
+      "boxesPainted": 3,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "PHONE"
+      ],
+      "perceptionMs": 3300
+    },
+    {
+      "url": "/demo/img/ocr/receipt_4.html",
+      "kind": "canvas_receipt",
+      "goldTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "foundTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "missed": [],
+      "boxesPainted": 3,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "PHONE"
+      ],
+      "perceptionMs": 3296
+    },
+    {
+      "url": "/demo/img/ocr/receipt_5.html",
+      "kind": "canvas_receipt",
+      "goldTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "foundTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "missed": [],
+      "boxesPainted": 3,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "PHONE"
+      ],
+      "perceptionMs": 3303
+    },
+    {
+      "url": "/demo/img/ocr/receipt_6.html",
+      "kind": "canvas_receipt",
+      "goldTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "foundTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "missed": [],
+      "boxesPainted": 3,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "PHONE"
+      ],
+      "perceptionMs": 3293
+    },
+    {
+      "url": "/demo/img/ocr/receipt_7.html",
+      "kind": "canvas_receipt",
+      "goldTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "foundTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "missed": [],
+      "boxesPainted": 3,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "PHONE"
+      ],
+      "perceptionMs": 3293
+    },
+    {
+      "url": "/demo/img/ocr/receipt_8.html",
+      "kind": "canvas_receipt",
+      "goldTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "foundTypes": [
+        "NAME",
+        "PHONE"
+      ],
+      "missed": [],
+      "boxesPainted": 3,
+      "tokens": [
+        "NAME",
+        "NAME",
+        "PHONE"
+      ],
+      "perceptionMs": 3292
+    }
+  ]
+}

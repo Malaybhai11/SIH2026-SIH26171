@@ -1,0 +1,282 @@
+[
+  {
+    "url": "/demo/img/ocr/id_card_1.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Rohan Mehta"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "2524 6967 0277"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/id_card_2.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Priya Sharma"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "5875 5487 4831"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/id_card_3.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Ananya Iyer"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "4496 6198 8957"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/id_card_4.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Vikram Singh"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "5003 7569 3014"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/id_card_5.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Kavya Nair"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "3830 1243 5510"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/id_card_6.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Arjun Patel"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "8930 9267 5120"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/id_card_7.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Sunita Rao"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "6964 3360 2522"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/id_card_8.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Imran Qureshi"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "8083 5336 0833"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/id_card_9.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Deepika Joshi"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "7235 5666 0476"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/id_card_10.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Harpreet Kaur"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "4039 3034 4946"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/id_card_11.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Rohan Mehta"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "4032 6538 7751"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/id_card_12.html",
+    "kind": "id_card",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Priya Sharma"
+      },
+      {
+        "type": "AADHAAR",
+        "value": "4713 0138 4588"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/receipt_1.html",
+    "kind": "canvas_receipt",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Vikram Singh"
+      },
+      {
+        "type": "PHONE",
+        "value": "9705820409"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/receipt_2.html",
+    "kind": "canvas_receipt",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Kavya Nair"
+      },
+      {
+        "type": "PHONE",
+        "value": "9258001942"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/receipt_3.html",
+    "kind": "canvas_receipt",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Arjun Patel"
+      },
+      {
+        "type": "PHONE",
+        "value": "9292684957"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/receipt_4.html",
+    "kind": "canvas_receipt",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Sunita Rao"
+      },
+      {
+        "type": "PHONE",
+        "value": "9891348379"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/receipt_5.html",
+    "kind": "canvas_receipt",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Imran Qureshi"
+      },
+      {
+        "type": "PHONE",
+        "value": "9553698263"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/receipt_6.html",
+    "kind": "canvas_receipt",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Deepika Joshi"
+      },
+      {
+        "type": "PHONE",
+        "value": "9290116654"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/receipt_7.html",
+    "kind": "canvas_receipt",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Harpreet Kaur"
+      },
+      {
+        "type": "PHONE",
+        "value": "9678753251"
+      }
+    ]
+  },
+  {
+    "url": "/demo/img/ocr/receipt_8.html",
+    "kind": "canvas_receipt",
+    "gold": [
+      {
+        "type": "NAME",
+        "value": "Rohan Mehta"
+      },
+      {
+        "type": "PHONE",
+        "value": "9306334637"
+      }
+    ]
+  }
+]

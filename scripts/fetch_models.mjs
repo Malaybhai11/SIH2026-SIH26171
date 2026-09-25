@@ -12,6 +12,9 @@ import path from "node:path";
 
 const ROOT = "extension/models";
 const HF = "https://huggingface.co";
+// Fast-trained LSTM English model for Tesseract.js OCR (A1) — smaller and quicker
+// than the default tessdata build, same as tesseract.js's own recommended source.
+const TESSDATA_FAST = "https://raw.githubusercontent.com/naptha/tessdata/gh-pages/4.0.0_fast";
 
 const CLIENT = [
   // Face detector — OpenCV YuNet (FP32, ~0.2 MB, CNN, anchor-free). FP32 not INT8:
@@ -67,5 +70,22 @@ for (const m of sets) {
   for (const f of m.files) {
     const r = await fetchOne(m.repo, f, m.out);
     console.log(r.cached ? `  cached ${r.dest}` : `  fetched ${r.dest} (${(r.bytes / 1e6).toFixed(1)} MB)`);
+  }
+}
+
+// Tesseract OCR trained data (A1) — the worker/core runtime files come from the
+// tesseract.js / tesseract.js-core npm packages instead (copied by build.mjs),
+// since `npm install` already fetches them; only the language data is separate.
+{
+  const dest = path.join(ROOT, "tesseract/eng.traineddata.gz");
+  if (await exists(dest)) {
+    console.log(`  cached ${dest}`);
+  } else {
+    await mkdir(path.dirname(dest), { recursive: true });
+    const res = await fetch(`${TESSDATA_FAST}/eng.traineddata.gz`);
+    if (!res.ok) throw new Error(`eng.traineddata.gz: HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    await writeFile(dest, buf);
+    console.log(`  fetched ${dest} (${(buf.length / 1e6).toFixed(1)} MB)`);
   }
 }

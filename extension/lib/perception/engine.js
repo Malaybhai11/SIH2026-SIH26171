@@ -20,8 +20,10 @@ import * as ort from "onnxruntime-web/webgpu";
 import { FaceDetector } from "./faces.js";
 import { ClipClassifier } from "./clip.js";
 import { PiiNer } from "./ner.js";
+import { OcrEngine, joinOcrWords, mapSpansToWordBoxes } from "./ocr.js";
 import { crop, dHash, hamming, resize } from "./image.js";
 import { fuseScreen, COARSE_OF } from "../screenFeatures.js";
+import { detectSpans } from "../redact.js";
 
 const FILES = {
   // fp32 (0.2 MB): 2.6x faster than the INT8 graph on the WASM CPU backend (measured)
@@ -36,6 +38,12 @@ const FILES = {
 const CELL = 160; // ROI mosaic cell (4x4 grid in a 640 input)
 const MAX_REGION_CLIP = 4; // new (uncached) region classifications per frame
 const REGION_SENSITIVE_MIN_P = 0.35;
+// A1: only ROI kinds that CAN'T have DOM text (an <img>/<canvas>/<object>/<embed> is
+// always a replaced element — its pixels are never text nodes) get OCR'd; text
+// already covered by the DOM layer is much cheaper to find there.
+const OCR_ROI_KINDS = new Set(["img", "canvas", "object", "embed", "picture"]);
+const MAX_OCR_REGIONS = 3; // new (uncached) OCR passes per frame — LSTM inference is not free
+const OCR_MIN_SIZE = 32; // skip icons/avatars too small to hold readable text
 
 class LRU {
   constructor(n) {
@@ -68,6 +76,7 @@ export class PerceptionEngine {
     this.lastFrame = null;
     this.faceCache = new LRU(200);
     this.screenCache = new LRU(100);
+    this.ocrCache = new LRU(300); // region content hash -> recognised spans (device px, offset 0,0)
   }
 
   async pickEp() {
@@ -126,6 +135,8 @@ export class PerceptionEngine {
             this.json(FILES.nerCfg),
           ]);
           m = new PiiNer(ort, s, tok, cfg);
+        } else if (key === "ocr") {
+          m = new OcrEngine(this.urlFor); // owns its own Tesseract.js Worker, not an ORT session
         }
         this.models[key] = m;
         return m;
@@ -324,6 +335,53 @@ export class PerceptionEngine {
     T.screen = T.faces;
     T.regions = performance.now();
 
+    // A1: on-device OCR — text drawn in PIXELS (scanned ID cards, PDF pages, canvas
+    // apps) that the DOM text layer structurally cannot see. Only regions that can
+    // never hold DOM text (img/canvas/object/embed), only when the mode budget
+    // allows it (same tier as CLIP), and cached by region content hash exactly like
+    // face/region classification — an unchanged crop is not re-OCR'd.
+    let ocrSpans = [];
+    if (mode !== "eco") {
+      const t3 = performance.now();
+      const candidates = devRois
+        .filter((r) => OCR_ROI_KINDS.has(r.kind) && r.dw >= OCR_MIN_SIZE && r.dh >= OCR_MIN_SIZE)
+        .sort((a, b) => b.dw * b.dh - a.dw * a.dh);
+      let newOcrRuns = 0;
+      let ocrError = null;
+      for (const r of candidates) {
+        const c = crop(img, { x: r.dx, y: r.dy, w: r.dw, h: r.dh });
+        const key = `${dHash(c)}:${c.width}x${c.height}`;
+        let spans = this.ocrCache.get(key);
+        if (!spans) {
+          if (newOcrRuns >= MAX_OCR_REGIONS) continue; // over budget this frame — try again once cached elsewhere
+          const ocr = await this.load("ocr");
+          const t4 = performance.now();
+          spans = [];
+          try {
+            const { words } = await ocr.recognize(c);
+            if (words.length) {
+              const { text, offsets } = joinOcrWords(words);
+              // NER for the same reason the DOM text layer needs it: a bare name
+              // ("Rohan Mehta") has no rule-based signal in English, only the model.
+              const nerTag = async (t) => (await this.ner([t]))[0];
+              spans = mapSpansToWordBoxes(await detectSpans(text, { nerTag }), offsets);
+            }
+          } catch (e) {
+            ocrError = String(e?.message || e);
+          }
+          this.time("ocr", performance.now() - t4);
+          newOcrRuns++;
+          this.ocrCache.set(key, spans);
+        }
+        for (const s of spans) ocrSpans.push({ ...s, x: s.x + c.offsetX, y: s.y + c.offsetY });
+      }
+      if (newOcrRuns) this.stats.lastOcrRegions = newOcrRuns;
+      if (ocrError) this.stats.lastOcrError = ocrError;
+      T.ocr = performance.now();
+    } else {
+      T.ocr = T.regions;
+    }
+
     const result = {
       ep: this.ep,
       scale,
@@ -335,12 +393,14 @@ export class PerceptionEngine {
       })(),
       faces: faces.map((f) => ({ x: Math.round(f.x), y: Math.round(f.y), w: Math.round(f.w), h: Math.round(f.h), score: f.score, via: f.via })),
       regions,
+      ocrSpans,
       cacheHit: false,
       timings: {
         decodeMs: Math.round(T.decode - T.start),
         facesMs: Math.round(T.faces - T.decode),
         clipMs: Math.round(T.regions - T.faces),
-        totalMs: Math.round(T.regions - T.start),
+        ocrMs: Math.round(T.ocr - T.regions),
+        totalMs: Math.round(T.ocr - T.start),
       },
     };
     this.lastFrame = { hash, roiSig, mode, result };

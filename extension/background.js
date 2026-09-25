@@ -1699,6 +1699,7 @@ async function privacyPreview({ tabId, mode }) {
     boxes: [
       ...snapshot.piiBoxes.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, type: b.type, label: b.label, source: b.source })),
       ...(visual?.faces ?? []).map((f) => ({ ...css(f), type: "FACE", source: f.via })),
+      ...(visual?.ocrBoxes ?? []).map((b) => ({ ...css(b), type: b.type, label: b.label, source: "ocr" })),
     ],
     sensitiveRegions: (visual?.regions ?? []).filter((r) => r.sensitive).map((r) => r.id),
     rois: snapshot.rois,
