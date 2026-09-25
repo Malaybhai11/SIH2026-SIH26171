@@ -8,6 +8,7 @@
 // /agent/step call. State is mirrored to chrome.storage.session so a reopened popup can catch up.
 
 import { MSG, STATUS, CONTRACT_VERSION, DEFAULTS, STATE_KEY } from "./lib/messages.js";
+import { detectDeviceTier } from "./lib/deviceTier.js";
 import { getMemoryFacts, addHistoryEntry, rememberFact, addNote } from "./lib/memoryStore.js";
 import { Vault, applySpans, detectRuleSpans } from "./lib/redact.js";
 import { perception } from "./lib/perceptionClient.js";
@@ -25,8 +26,17 @@ import {
 const SETTINGS_KEY = "agentSettings";
 async function loadSettings() {
   const stored = (await chrome.storage.local.get(SETTINGS_KEY).catch(() => ({})))[SETTINGS_KEY] || {};
+  let perceptionMode = stored.perceptionMode;
+  if (perceptionMode === undefined) {
+    // No saved choice yet (first run, or storage cleared): pick a one-time
+    // device-adaptive default from rough capability signals and persist it, so
+    // this never re-runs and never overrides a perceptionMode the user (via the
+    // popup) or a prior run of this same logic already saved.
+    perceptionMode = detectDeviceTier();
+    chrome.storage.local.set({ [SETTINGS_KEY]: { ...stored, perceptionMode } }).catch(() => {});
+  }
   return {
-    perceptionMode: stored.perceptionMode ?? DEFAULTS.perceptionMode,
+    perceptionMode: perceptionMode ?? DEFAULTS.perceptionMode,
     humanize: stored.humanize ?? DEFAULTS.humanize,
     sendScreenshot: stored.sendScreenshot ?? DEFAULTS.sendScreenshot,
   };
