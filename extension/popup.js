@@ -4,6 +4,7 @@
 import { MSG, STATUS } from "./lib/messages.js";
 import { renderMarkdownLite } from "./lib/markdownLite.js";
 import { saveTemplate, getTemplates } from "./lib/memoryStore.js";
+import { detectDeviceTier } from "./lib/deviceTier.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -521,7 +522,10 @@ els.previewBtn.addEventListener("click", async () => {
 // ---- Settings (persisted by the background) ----
 async function loadSettingsUi() {
   const s = (await chrome.storage.local.get("agentSettings")).agentSettings || {};
-  if (s.perceptionMode) els.perceptionMode.value = s.perceptionMode;
+  // Mirror background.js's loadSettings(): before the background has persisted its
+  // one-time device-adaptive default, show that same default here instead of the
+  // HTML's static "balanced" option, so the popup never displays a stale value.
+  els.perceptionMode.value = s.perceptionMode || detectDeviceTier();
   if (s.sendScreenshot !== undefined) els.sendScreenshot.checked = !!s.sendScreenshot;
   if (s.humanize !== undefined) els.humanize.checked = !!s.humanize;
 }
