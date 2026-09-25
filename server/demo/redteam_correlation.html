@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Account summary — NimbusBank</title><link rel="stylesheet" href="demo.css"></head>
+<body><header class="top"><b>🏦 NimbusBank</b></header>
+<main>
+<div class="card">
+  <h2 style="margin-top:0">Account summary</h2>
+  <p class="muted">E2 red-team: a real PII value split across two separately-extracted
+  DOM elements. Neither fragment alone matches a PII pattern (too short), but the two
+  are adjacent and, concatenated, reconstitute the full value.</p>
+
+  <!-- M1: phone split across two table cells (each <td> is its own block, so each
+       becomes its own extracted node/text-block rather than being merged). -->
+  <table data-technique="split-phone-table">
+    <tr><th>Field</th><th>Value (part 1)</th><th>Value (part 2)</th></tr>
+    <tr><td>Registered mobile</td><td>98765</td><td>43210</td></tr>
+  </table>
+
+  <!-- M2: email split across two separate <div> blocks (again, separate block
+       ancestors — a genuine split, not something addTextBlocks would already
+       merge back into one string). The two fragments concatenate literally,
+       exactly like the phone digits above. -->
+  <div data-technique="split-email-divs">
+    <div>kavya.nair</div>
+    <div>@example.org</div>
+  </div>
+</div>
+</main></body></html>

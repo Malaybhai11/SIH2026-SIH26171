@@ -30,6 +30,12 @@ const blockCache = new WeakMap();
 function blockOf(el) {
   let cur = el;
   while (cur && cur !== document.body) {
+    // SVG <text> (an id-card/PAN-card rendered as SVG, not raster) is its own block:
+    // it doesn't participate in CSS block/inline layout the way HTML does, and a
+    // Range spanning across the SVG boundary into surrounding HTML text produces
+    // unreliable getClientRects() results — stopping here keeps SVG text scanned
+    // (and boxed) as its own self-contained unit instead of being silently dropped.
+    if (cur.tagName === "text") return cur;
     let isBlock = blockCache.get(cur);
     if (isBlock === undefined) {
       const d = getComputedStyle(cur).display;
@@ -37,42 +43,72 @@ function blockOf(el) {
       blockCache.set(cur, isBlock);
     }
     if (isBlock) return cur;
+    // A shadow-root boundary: cur's next parentElement is null even though cur
+    // isn't document.body (a shadow tree's own top-level nodes have no
+    // parentElement — the ShadowRoot itself isn't an Element). Stop here and treat
+    // it as its own block, instead of falling through to document.body below,
+    // which would wrongly merge unrelated shadow-root text into one block keyed
+    // on the light-DOM body.
+    if (!cur.parentElement) return cur;
     cur = cur.parentElement;
   }
   return document.body;
 }
 
-/** Visible text grouped by block ancestor, with per-node offsets. */
+// E2: an open shadow root (any real web-component: most design systems use one)
+// renders on screen exactly like light DOM, but document.body's own TreeWalker
+// never descends into it — a shadow tree is a separate node tree. A CLOSED shadow
+// root is unreachable from content-script JS by design (the browser enforces
+// that, same as it enforces cross-origin isolation) and is out of scope here.
+function findOpenShadowRoots(root, out = []) {
+  const els = root.querySelectorAll ? root.querySelectorAll("*") : [];
+  for (const el of els) {
+    if (el.shadowRoot) {
+      out.push(el.shadowRoot);
+      findOpenShadowRoots(el.shadowRoot, out);
+    }
+  }
+  return out;
+}
+
+/** Visible text grouped by block ancestor, with per-node offsets. Walks document.body
+ * plus every reachable open shadow root as its own extra TreeWalker root. */
 export function collectTextBlocks() {
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-    acceptNode(n) {
-      if (!n.data || !/\S/.test(n.data)) return NodeFilter.FILTER_REJECT;
-      const p = n.parentElement;
-      if (!p || SKIP_TAGS.has(p.tagName) || p.closest("svg")) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_ACCEPT;
-    },
-  });
+  const acceptNode = (n) => {
+    if (!n.data || !/\S/.test(n.data)) return NodeFilter.FILTER_REJECT;
+    const p = n.parentElement;
+    // SVG <text>/<tspan> content IS scanned (see blockOf: it's grouped as its own
+    // block) — only truly non-textual SVG (paths, shapes) has no text nodes to
+    // walk into anyway, so no extra guard is needed here beyond SKIP_TAGS.
+    if (!p || SKIP_TAGS.has(p.tagName)) return NodeFilter.FILTER_REJECT;
+    return NodeFilter.FILTER_ACCEPT;
+  };
   const blocks = new Map();
   let count = 0;
   const elVisible = new WeakMap();
-  for (let n = walker.nextNode(); n && count < MAX_TEXT_NODES; n = walker.nextNode()) {
-    const p = n.parentElement;
-    let vis = elVisible.get(p);
-    if (vis === undefined) {
-      vis = !!vpRect(p.getBoundingClientRect());
-      elVisible.set(p, vis);
+  const roots = [document.body, ...findOpenShadowRoots(document)];
+  for (const root of roots) {
+    if (count >= MAX_TEXT_NODES) break;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode });
+    for (let n = walker.nextNode(); n && count < MAX_TEXT_NODES; n = walker.nextNode()) {
+      const p = n.parentElement;
+      let vis = elVisible.get(p);
+      if (vis === undefined) {
+        vis = !!vpRect(p.getBoundingClientRect());
+        elVisible.set(p, vis);
+      }
+      if (!vis) continue;
+      count++;
+      const b = blockOf(p);
+      let blk = blocks.get(b);
+      if (!blk) blocks.set(b, (blk = { text: "", parts: [] }));
+      // <br> and inline-block siblings render as separate lines: keep them apart so
+      // "Rohan Mehta<br>House No. 12" is not read as one token "MehtaHouse"
+      if (blk.text && (n.previousSibling?.nodeName === "BR" || (!/\s$/.test(blk.text) && p !== blk.lastParent && p.previousElementSibling?.nodeName === "BR"))) blk.text += "\n";
+      blk.parts.push({ node: n, start: blk.text.length });
+      blk.text += n.data;
+      blk.lastParent = p;
     }
-    if (!vis) continue;
-    count++;
-    const b = blockOf(p);
-    let blk = blocks.get(b);
-    if (!blk) blocks.set(b, (blk = { text: "", parts: [] }));
-    // <br> and inline-block siblings render as separate lines: keep them apart so
-    // "Rohan Mehta<br>House No. 12" is not read as one token "MehtaHouse"
-    if (blk.text && (n.previousSibling?.nodeName === "BR" || !/\s$/.test(blk.text) && p !== blk.lastParent && p.previousElementSibling?.nodeName === "BR")) blk.text += "\n";
-    blk.parts.push({ node: n, start: blk.text.length });
-    blk.text += n.data;
-    blk.lastParent = p;
   }
   return [...blocks.values()].filter((b) => /\S/.test(b.text) && b.text.length <= 5000);
 }
@@ -93,6 +129,41 @@ function spanRects(block, start, end) {
     }
   }
   return rects;
+}
+
+// E2: PII placed in a ::before/::after CSS `content` string is never a DOM text
+// node at all — collectTextBlocks (Range/TreeWalker based) structurally cannot see
+// it, yet it renders on screen exactly like real text. There is no Range API for a
+// pseudo-element, so an exact sub-rectangle isn't available; the whole host
+// element's box is blacked out instead — the same "can't localise precisely, cover
+// the region" fallback already used for unreachable cross-origin iframes (D1, see
+// privacyPipeline.js). getComputedStyle(el, pseudo).content only yields a plain
+// string for a literal CSS string value ("..."); attr()/counter()/url() etc. are
+// left alone (out of scope: they don't carry an attacker-authored literal value).
+const MAX_PSEUDO_SCAN = 3000;
+function collectPseudoContent() {
+  const out = [];
+  const els = document.body.querySelectorAll("*");
+  let n = 0;
+  for (const el of els) {
+    if (n++ > MAX_PSEUDO_SCAN) break;
+    for (const pseudo of ["::before", "::after"]) {
+      let cs;
+      try {
+        cs = getComputedStyle(el, pseudo);
+      } catch {
+        continue;
+      }
+      const raw = cs.content;
+      if (!raw || raw === "none" || raw === "normal") continue;
+      const m = /^["'](.*)["']$/.exec(raw);
+      if (!m || !m[1].trim()) continue;
+      const v = vpRect(el.getBoundingClientRect());
+      if (!v) continue;
+      out.push({ text: m[1], v });
+    }
+  }
+  return out;
 }
 
 /**
@@ -122,6 +193,13 @@ export async function scanViewportPii(nerBatch, known = [], customTerms = []) {
     for (const s of spans) {
       for (const r of spanRects(b, s.start, s.end)) boxes.push({ ...r, type: s.type, value: s.value, source: s.source });
     }
+  }
+
+  // E2: ::before/::after generated content — no exact sub-rect available, so the
+  // whole host element is boxed (see collectPseudoContent's doc comment).
+  for (const { text, v } of collectPseudoContent()) {
+    const spans = await detectSpans(text, { known, customTerms });
+    if (spans.length) boxes.push({ ...v, type: spans[0].type, value: text, source: "pseudo" });
   }
 
   // form fields: sensitive by kind (always), personal by value (when filled)

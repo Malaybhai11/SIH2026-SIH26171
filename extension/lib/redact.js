@@ -142,8 +142,91 @@ const REF_CONTEXT =
 // normalised. detectRuleSpans() below runs every rule against a normalised COPY
 // of the text; span start/end stay valid on the ORIGINAL string because the
 // substitution never changes length or count.
+const DEV_DIGIT_MAP = {};
+for (let i = 0; i <= 9; i++) DEV_DIGIT_MAP[String.fromCharCode(0x0966 + i)] = String(i);
+
 export function normalizeDevanagariDigits(s) {
-  return s.replace(/[०-९]/g, (c) => String(c.charCodeAt(0) - 0x0966));
+  return s.replace(/[०-९]/g, (c) => DEV_DIGIT_MAP[c]);
+}
+
+// --- E2: red-team evasion normalization -------------------------------------------
+//
+// Three unrelated Unicode tricks a page can use to make a real PII value pass
+// visually as itself while defeating every regex/checksum rule above, which all
+// scan literal characters in literal order:
+//   1. Zero-width characters (U+200B ZWSP, U+200C ZWNJ, U+200D ZWJ, U+2060 WORD
+//      JOINER, U+FEFF BOM, U+180E) spliced INTO a value ("pri​ya@ex​ample.com")
+//      — invisible to a human, but breaks every \b/character-class match.
+//   2. Homoglyphs: Cyrillic/Greek look-alikes swapped for Latin letters
+//      ("pri­yа@example.com" with Cyrillic а U+0430) — renders identically to a
+//      human eye, doesn't match [A-Za-z...] classes.
+//   3. RTL override (U+202E RLO ... U+202C PDF): the enclosed text is stored in
+//      REVERSE order but the browser renders it left-to-right-correct, so a Luhn-
+//      or Verhoeff-checksummed value (order-dependent) fails validation on the
+//      reversed digit string and is never classified as PII at all.
+//
+// normalizeForScan() undoes all three before the RULES run, and returns an index
+// MAP so a match on the normalized string can be translated back to an exact
+// [start,end) slice of the ORIGINAL string for applySpans() — min/max of the
+// touched original indices, which is correct even where RLO reversed their order
+// (see the loop below: it doesn't need them to stay monotonic, only contiguous).
+const HOMOGLYPH_MAP = {
+  "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y", "і": "i", "ѕ": "s", "ј": "j",
+  "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H", "О": "O", "Р": "P", "С": "C", "Т": "T", "Х": "X",
+  "ο": "o", "Α": "A", "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H", "Ι": "I", "Κ": "K", "Μ": "M", "Ν": "N", "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X",
+};
+export function normalizeHomoglyphs(s) {
+  let out = "";
+  for (const c of s) out += HOMOGLYPH_MAP[c] ?? c;
+  return out;
+}
+
+const ZERO_WIDTH = new Set(["​", "‌", "‍", "⁠", "﻿", "᠎"]);
+const BIDI_SKIP = new Set(["‬", "‪", "‫", "‭", "⁦", "⁧", "⁨", "⁩"]);
+const RLO = "‮";
+const PDF = "‬";
+
+/** Undo zero-width splicing, homoglyphs and RTL-override reversal before scanning; returns {text, map} where map[j] is the ORIGINAL index of normalized char j. */
+export function normalizeForScan(text) {
+  const outChars = [];
+  const map = [];
+  // Fullwidth Unicode forms (U+FF01-FF5E mirror ASCII 0x21-0x7E at a fixed +0xFEE0
+  // offset; U+3000 IDEOGRAPHIC SPACE mirrors a plain space) — a distinct evasion
+  // class from homoglyphs (different block, but same "renders legibly, doesn't
+  // match [A-Za-z0-9]" property), so it gets its own formulaic case here.
+  const fullwidth = (c) => {
+    const code = c.codePointAt(0);
+    if (code >= 0xff01 && code <= 0xff5e) return String.fromCharCode(code - 0xfee0);
+    if (code === 0x3000) return " ";
+    return c;
+  };
+  const push = (idx) => {
+    const c = text[idx];
+    if (ZERO_WIDTH.has(c)) return;
+    outChars.push(fullwidth(HOMOGLYPH_MAP[c] ?? DEV_DIGIT_MAP[c] ?? c));
+    map.push(idx);
+  };
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const ch = text[i];
+    if (ch === RLO) {
+      i++;
+      const start = i;
+      while (i < n && text[i] !== PDF) i++;
+      const end = i; // [start, end) is the reversed run, in ORIGINAL order
+      if (i < n) i++; // consume the matching PDF
+      for (let k = end - 1; k >= start; k--) push(k); // emit reversed -> logical order
+      continue;
+    }
+    if (BIDI_SKIP.has(ch)) {
+      i++;
+      continue;
+    }
+    push(i);
+    i++;
+  }
+  return { text: outChars.join(""), map };
 }
 
 // Loose "Devanagari word character": letters + vowel signs/virama, deliberately
@@ -268,10 +351,13 @@ const RULES = [
   { type: "LOCATION", re: new RegExp(HI_CITY, "g") },
 ];
 
-/** Rule layer: spans on the ORIGINAL text (Devanagari digits normalised to ASCII first — see normalizeDevanagariDigits; the substitution is 1-for-1, so span offsets stay valid on the original string). */
+/** Rule layer: spans on the ORIGINAL text. Devanagari digits, zero-width splicing,
+ * homoglyphs and RTL-override reversal are all undone first (normalizeForScan);
+ * a match's [start,end) is then the [min,max]+1 of the touched original indices
+ * (see normalizeForScan's doc comment for why this stays correct under reversal). */
 export function detectRuleSpans(text) {
   if (!text || typeof text !== "string") return [];
-  const normalized = normalizeDevanagariDigits(text);
+  const { text: normalized, map } = normalizeForScan(text);
   const spans = [];
   for (const rule of RULES) {
     rule.re.lastIndex = 0;
@@ -282,18 +368,26 @@ export function detectRuleSpans(text) {
         continue;
       }
       let value = m[0];
-      let start = m.index;
+      let nStart = m.index;
       if (rule.group) {
         value = m[rule.group];
         if (!value) continue;
-        start = m.index + m[0].lastIndexOf(value);
+        nStart = m.index + m[0].lastIndexOf(value);
       }
       // trim trailing separators / whitespace
       const trimmed = value.replace(/[\s,.;:-]+$/, "");
       if (!trimmed) continue;
       if (rule.valid && !rule.valid(trimmed, m, normalized)) continue;
-      if (rule.notAfter && rule.notAfter.test(normalized.slice(Math.max(0, start - 24), start))) continue;
-      spans.push({ start, end: start + trimmed.length, type: rule.type, value: trimmed, source: "rule" });
+      if (rule.notAfter && rule.notAfter.test(normalized.slice(Math.max(0, nStart - 24), nStart))) continue;
+      const segMap = map.slice(nStart, nStart + trimmed.length);
+      if (!segMap.length) continue;
+      const start = Math.min(...segMap);
+      const end = Math.max(...segMap) + 1;
+      // value stays the NORMALIZED form (ASCII digits, logical digit order, Latin
+      // letters) — same behaviour as the pre-existing Devanagari-digit case: it's
+      // the canonical value a Vault/rehydration step should reason about, not the
+      // attacker's raw on-page encoding of it.
+      spans.push({ start, end, type: rule.type, value: trimmed, source: "rule" });
     }
   }
   return resolveOverlaps(spans);
@@ -503,8 +597,73 @@ export function customTermSpans(text, customTerms = []) {
   return out;
 }
 
+// --- E2: encoded PII (base64 / hex) ------------------------------------------------
+//
+// A page can put real PII in plain sight as a reversible encoding of it — base64,
+// hex — which no regex/checksum rule above matches (it's not shaped like an email or
+// a phone number, it's shaped like base64). Anyone — a person, or an LLM asked to
+// "decode this field" — trivially reverses it back to the raw value, so it is treated
+// as PII too: candidate tokens are decoded, the DECODED text is re-scanned with the
+// same rule engine, and if THAT finds high-confidence PII, the ORIGINAL encoded
+// substring (not the decoded value) is what gets replaced with a token — the page
+// never contained the decoded plaintext as a DOM string, so redacting the on-page
+// spelling is what actually removes it from the outgoing payload.
+// no trailing \b: base64 padding ("=") is a non-word char, so a boundary check
+// right after it never matches (both sides land non-word) and the whole rule
+// would silently never fire on any padded value — the leading \b plus a length
+// floor is enough to avoid matching mid-token.
+const BASE64_RE = /\b[A-Za-z0-9+/]{16,}={0,2}/g;
+const HEX_RE = /\b(?:[0-9a-fA-F]{2}){8,}\b/g;
+const PRINTABLE = /^[\x20-\x7e]+$/;
+
+function tryDecodeBase64(s) {
+  if (s.length < 16 || s.length % 4 !== 0) return null;
+  try {
+    const bin = typeof atob === "function" ? atob(s) : Buffer.from(s, "base64").toString("binary");
+    return PRINTABLE.test(bin) ? bin : null;
+  } catch {
+    return null;
+  }
+}
+function tryDecodeHex(s) {
+  if (s.length < 16 || s.length % 2 !== 0) return null;
+  let out = "";
+  for (let i = 0; i < s.length; i += 2) {
+    const byte = parseInt(s.slice(i, i + 2), 16);
+    if (Number.isNaN(byte)) return null;
+    out += String.fromCharCode(byte);
+  }
+  return PRINTABLE.test(out) ? out : null;
+}
+
+/** Spans where the ORIGINAL text is an encoded (base64/hex) blob whose DECODED content is high-confidence PII. */
+export function detectEncodedSpans(text) {
+  const out = [];
+  if (!text || text.length < 16) return out;
+  for (const [re, decode] of [
+    [BASE64_RE, tryDecodeBase64],
+    [HEX_RE, tryDecodeHex],
+  ]) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(text))) {
+      const decoded = decode(m[0]);
+      if (!decoded) continue;
+      const inner = detectRuleSpans(decoded);
+      // require the decoded PII to span most of the decoded string — otherwise a
+      // long hex/base64-shaped ID that merely CONTAINS a coincidental short digit
+      // run would over-trigger.
+      const covered = inner.reduce((a, s) => a + (s.end - s.start), 0);
+      if (inner.length && covered / decoded.length > 0.4) {
+        out.push({ start: m.index, end: m.index + m[0].length, type: inner[0].type, value: decoded, source: "encoded" });
+      }
+    }
+  }
+  return out;
+}
+
 export async function detectSpans(text, { nerTag, known, customTerms } = {}) {
-  const rule = [...detectRuleSpans(text), ...knownValueSpans(text, known), ...customTermSpans(text, customTerms)].map((s) => ({
+  const rule = [...detectRuleSpans(text), ...knownValueSpans(text, known), ...customTermSpans(text, customTerms), ...detectEncodedSpans(text)].map((s) => ({
     ...s,
     source: s.source === "vault" || s.source === "custom" ? "rule" : s.source,
     via: s.source,
@@ -539,6 +698,40 @@ export async function redactText(input, opts = {}) {
   };
 }
 
+// --- E2: multi-field correlation ---------------------------------------------------
+//
+// A page can split one PII value across two DOM elements (a phone's area code in
+// one <td>, the rest in the next) — each extracted NODE is redacted independently
+// above, so neither fragment alone matches any rule/checksum and both pass
+// through untouched. But the two nodes are adjacent in the extracted array (the
+// extractor emits nodes in reading order), and an agent — or a person — reading
+// them back to back trivially reconstitutes the full value. This is a best-effort
+// second pass: re-scan each SHORT node's "text" concatenated with its immediate
+// neighbour's, and if that join only THERE reveals a high-confidence pattern,
+// blank the crossing portion in both. It catches simple physical adjacency (table
+// cells, sibling divs/spans); it is not a general multi-hop reconstruction proof.
+const ADJACENT_SPLIT_MAX_LEN = 24;
+function redactAdjacentSplits(nodes, opts = {}) {
+  for (let i = 0; i < nodes.length - 1; i++) {
+    const a = nodes[i];
+    const b = nodes[i + 1];
+    if (typeof a.text !== "string" || typeof b.text !== "string" || !a.text || !b.text) continue;
+    if (a.text.length > ADJACENT_SPLIT_MAX_LEN || b.text.length > ADJACENT_SPLIT_MAX_LEN) continue;
+    const boundary = a.text.length;
+    const spans = detectRuleSpans(a.text + b.text);
+    for (const s of spans) {
+      if (s.start >= boundary || s.end <= boundary) continue; // must straddle the join
+      const tok = tokenFor(s, opts.vault, opts.origin);
+      const aStart = Math.max(0, s.start);
+      const aEnd = Math.min(boundary, s.end);
+      const bStart = Math.max(0, s.start - boundary);
+      const bEnd = Math.min(b.text.length, s.end - boundary);
+      a.text = a.text.slice(0, aStart) + tok + a.text.slice(aEnd);
+      b.text = b.text.slice(0, bStart) + tok + b.text.slice(bEnd);
+    }
+  }
+}
+
 /**
  * Redact extracted DOM nodes.
  * @returns {Promise<{ nodes, log: Array<{type,value,elementId}> }>}
@@ -557,6 +750,7 @@ export async function redactNodes(nodes, opts = {}) {
     }
     out.push(copy);
   }
+  redactAdjacentSplits(out, opts);
   return { nodes: out, log };
 }
 
@@ -575,5 +769,6 @@ export function scrubLog(log) {
 export function hasResidualPII(text) {
   if (!text) return false;
   const HIGH = new Set(["EMAIL", "CC", "AADHAAR", "PAN", "GSTIN", "SSN", "SECRET", "UPI"]);
-  return detectRuleSpans(text).some((s) => HIGH.has(s.type) && !/^[Xx*]{4}/.test(s.value));
+  const hit = (s) => HIGH.has(s.type) && !/^[Xx*]{4}/.test(s.value);
+  return detectRuleSpans(text).some(hit) || detectEncodedSpans(text).some(hit);
 }
