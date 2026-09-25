@@ -71,6 +71,8 @@ export const DEFAULTS = Object.freeze({
   // status during a slow provider call. Falls back to the plain request on any
   // stream-level failure. Off by default — the plain request is the well-tested path.
   streamResponses: false,
+  // Popup UI language — "en" | "hi". Never affects the agent's own reasoning/prompts.
+  language: "en",
 });
 
 // chrome.storage.session key holding the live task state object.

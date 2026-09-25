@@ -5,6 +5,7 @@ import { MSG, STATUS } from "./lib/messages.js";
 import { renderMarkdownLite } from "./lib/markdownLite.js";
 import { saveTemplate, getTemplates } from "./lib/memoryStore.js";
 import { detectDeviceTier } from "./lib/deviceTier.js";
+import { t } from "./lib/i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -79,7 +80,86 @@ const els = {
   sitePolicyHost: $("sitePolicyHost"),
   sitePolicy: $("sitePolicy"),
   downloadReport: $("downloadReport"),
+  language: $("language"),
+  micBtn: $("micBtn"),
 };
+
+// Static UI-chrome elements translated by applyI18n() — everything the agent itself
+// writes (answers, log lines, sub-agent goals, extracted page text) is left alone.
+const i18nEls = {
+  tagline: $("tagline"),
+  historyMemory: $("openDashboard"),
+  lblLocalOnly: $("lblLocalOnly"),
+  lblMultiAgent: $("lblMultiAgent"),
+  lblPerception: $("lblPerception"),
+  lblSendScreenshot: $("lblSendScreenshot"),
+  lblHumanize: $("lblHumanize"),
+  lblLanguage: $("lblLanguage"),
+  lblMaxIterations: $("lblMaxIterations"),
+  run: $("run"),
+  takeOver: $("takeOver"),
+  cancel: $("cancel"),
+  saveTemplateBtn: $("saveTemplateBtn"),
+  confirmAllow: $("confirmAllow"),
+  confirmDeny: $("confirmDeny"),
+  resumeTask: $("resumeTask"),
+  tabTaskLabel: $("tabTaskLabel"),
+  tabPlanLabel: $("tabPlanLabel"),
+  tabSubAgentsLabel: $("tabSubAgentsLabel"),
+  tabNotesLabel: $("tabNotesLabel"),
+  tabPrivacyLabel: $("tabPrivacyLabel"),
+  tabRedactLabel: $("tabRedactLabel"),
+  tabMetricsLabel: $("tabMetricsLabel"),
+  tabLogLabel: $("tabLogLabel"),
+  answerHeading: $("answerHeading"),
+  copyAnswer: $("copyAnswer"),
+  tryLabel: $("tryLabel"),
+  templateChipsGroup: $("templateChipsGroup"),
+  previewBtn: $("previewBtn"),
+};
+
+let currentLang = "en";
+let micListening = false;
+
+function applyI18n(lang) {
+  currentLang = lang;
+  document.documentElement.lang = lang;
+  i18nEls.tagline.textContent = t("tagline", lang);
+  i18nEls.historyMemory.textContent = t("historyMemory", lang);
+  i18nEls.lblLocalOnly.textContent = t("localOnly", lang);
+  i18nEls.lblMultiAgent.textContent = t("multiAgent", lang);
+  i18nEls.lblPerception.textContent = t("perception", lang);
+  i18nEls.lblSendScreenshot.textContent = t("sendScreenshot", lang);
+  i18nEls.lblHumanize.textContent = t("humanizeInput", lang);
+  i18nEls.lblLanguage.textContent = t("language", lang);
+  i18nEls.lblMaxIterations.textContent = t("maxIterations", lang);
+  i18nEls.run.textContent = t("run", lang);
+  i18nEls.takeOver.textContent = t("takeOver", lang);
+  i18nEls.cancel.textContent = t("cancel", lang);
+  i18nEls.saveTemplateBtn.textContent = t("saveAsTemplate", lang);
+  i18nEls.confirmAllow.textContent = t("allow", lang);
+  i18nEls.confirmDeny.textContent = t("deny", lang);
+  i18nEls.resumeTask.textContent = t("resume", lang);
+  i18nEls.tabTaskLabel.textContent = t("tabTask", lang);
+  i18nEls.tabPlanLabel.textContent = t("tabPlan", lang);
+  i18nEls.tabSubAgentsLabel.textContent = t("tabSubAgents", lang);
+  i18nEls.tabNotesLabel.textContent = t("tabNotes", lang);
+  i18nEls.tabPrivacyLabel.textContent = t("tabPrivacy", lang);
+  i18nEls.tabRedactLabel.textContent = t("tabRedact", lang);
+  i18nEls.tabMetricsLabel.textContent = t("tabMetrics", lang);
+  i18nEls.tabLogLabel.textContent = t("tabLog", lang);
+  i18nEls.answerHeading.textContent = t("answer", lang);
+  i18nEls.copyAnswer.textContent = t("copy", lang);
+  i18nEls.tryLabel.textContent = t("tryLabel", lang);
+  i18nEls.templateChipsGroup.textContent = t("savedLabel", lang);
+  i18nEls.previewBtn.textContent = t("previewThisPage", lang);
+  els.prompt.placeholder = t("promptPlaceholder", lang);
+  els.templateLabel.placeholder = t("templateLabelPlaceholder", lang);
+  // Only overwrite the preview info line while it's still showing its default text
+  // (never once a real preview result — that's live data, not UI chrome).
+  if (!previewShown) els.previewInfo.textContent = t("previewInfoDefault", lang);
+  els.micBtn.title = micListening ? t("micStop", lang) : t("micStart", lang);
+}
 
 const BADGE_CLASS = {
   [STATUS.IDLE]: "",
@@ -146,6 +226,65 @@ function setTabAvailable(name, available) {
 for (const [name, btn] of Object.entries(TAB_BUTTONS)) {
   btn.addEventListener("click", () => showTab(name));
 }
+
+// ---- Voice input (Web Speech API) ----
+// Runs entirely in the popup's own page context — no manifest permission exists
+// for the microphone (Chrome extensions request it via getUserMedia like any web
+// page, there's just no declarative "microphone" permission key). Feature-detected:
+// browsers without SpeechRecognition (or a policy that disables it) just never see
+// the button, rather than the popup throwing when clicked.
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+if (SpeechRecognitionCtor) {
+  els.micBtn.hidden = false;
+  recognition = new SpeechRecognitionCtor();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.onresult = (ev) => {
+    let finalText = "";
+    let interimText = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) finalText += r[0].transcript;
+      else interimText += r[0].transcript;
+    }
+    // Replace anything from this recognition pass so far rather than appending on
+    // every partial result — voiceBase is what was in the box before this pass started.
+    els.prompt.value = (voiceBase + " " + finalText + interimText).trim();
+    updateChipsVisibility();
+  };
+  recognition.onerror = () => stopVoiceInput();
+  recognition.onend = () => stopVoiceInput();
+}
+let voiceBase = "";
+function startVoiceInput() {
+  if (!recognition || micListening) return;
+  voiceBase = els.prompt.value;
+  recognition.lang = currentLang === "hi" ? "hi-IN" : "en-IN";
+  try {
+    recognition.start();
+  } catch (e) {
+    return; // e.g. already started, or mic permission denied — leave button as-is
+  }
+  micListening = true;
+  els.micBtn.classList.add("listening");
+  els.micBtn.title = t("micStop", currentLang);
+}
+function stopVoiceInput() {
+  if (!micListening) return;
+  micListening = false;
+  els.micBtn.classList.remove("listening");
+  els.micBtn.title = t("micStart", currentLang);
+  try {
+    recognition.stop();
+  } catch (e) {
+    /* already stopped */
+  }
+}
+els.micBtn.addEventListener("click", () => {
+  if (micListening) stopVoiceInput();
+  else startVoiceInput();
+});
 
 // ---- Example prompt chips ----
 // Shown only while the task is idle and the textarea is empty — not
@@ -255,10 +394,9 @@ els.copyAnswer.addEventListener("click", async () => {
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
-    const original = els.copyAnswer.textContent;
-    els.copyAnswer.textContent = "Copied!";
+    els.copyAnswer.textContent = t("copied", currentLang);
     setTimeout(() => {
-      els.copyAnswer.textContent = original;
+      els.copyAnswer.textContent = t("copy", currentLang);
     }, 1500);
   } catch (e) {
     /* clipboard permission denied or unavailable — ignore */
@@ -271,7 +409,7 @@ function render(state) {
   lastStatus = state.status;
   const running = ![STATUS.IDLE, STATUS.DONE, STATUS.ERROR].includes(state.status);
 
-  els.status.textContent = state.status + (state.iteration ? ` ${state.iteration}/${state.maxIterations}` : "");
+  els.status.textContent = t(`status.${state.status}`, currentLang) + (state.iteration ? ` ${state.iteration}/${state.maxIterations}` : "");
   els.status.className = "badge " + (BADGE_CLASS[state.status] ?? "");
 
   // Live streaming progress (only populated when the "Stream responses" setting is on
@@ -292,7 +430,9 @@ function render(state) {
   els.takeOver.hidden = !running || paused;
   els.pauseBanner.hidden = !paused;
   if (paused) {
-    els.pauseText.textContent = state.error || "Paused — click Resume to continue.";
+    // state.error, when present, is the agent's own message (e.g. a CAPTCHA note) —
+    // left untranslated; only the generic fallback is UI chrome.
+    els.pauseText.textContent = state.error || t("pausedDefault", currentLang);
   }
 
   // Confirmation banner — needs attention regardless of the active tab.
@@ -446,7 +586,7 @@ function render(state) {
       byType +
       `<div style="margin-top:6px">${rows}</div>`;
   } else {
-    els.redactBody.innerHTML = `<p class="muted">No PII detected in the extracted context.</p>`;
+    els.redactBody.innerHTML = `<p class="muted">${t("noPii", currentLang)}</p>`;
   }
 
   // Metrics tab — per-step latency breakdown + client resource use
@@ -478,7 +618,7 @@ function render(state) {
       `<table class="metrics">${head}${body}</table><p class="muted">avg on-device perception ${avg("perceptionMs")} ms · avg step ${avg("totalMs")} ms · * = frame cache hit</p>` +
       `<p class="muted">screenshot sent on ${imageSentN}/${iters.length} step(s) (${imageSentPct}%) — hover a row's "image" cell for the gate's reason</p>`;
   } else {
-    els.metricsBody.innerHTML = engHtml + `<p class="muted">No iterations yet.</p>`;
+    els.metricsBody.innerHTML = engHtml + `<p class="muted">${t("noIterations", currentLang)}</p>`;
   }
 
   // Privacy X-ray — during a task, show the last frame the server received
@@ -542,8 +682,13 @@ async function loadSettingsUi() {
   if (s.sendScreenshot !== undefined) els.sendScreenshot.checked = !!s.sendScreenshot;
   if (s.humanize !== undefined) els.humanize.checked = !!s.humanize;
   if (s.streamResponses !== undefined) els.streamResponses.checked = !!s.streamResponses;
+  els.language.value = s.language === "hi" ? "hi" : "en";
+  applyI18n(els.language.value);
 }
 function saveSettingsUi() {
+  // background.js merges this into the stored settings object, so only the
+  // changed-looking fields need to be sent — but sending them all keeps this in
+  // sync even if a future field gets added without touching this list.
   chrome.runtime.sendMessage({
     type: MSG.SAVE_SETTINGS,
     payload: {
@@ -551,10 +696,15 @@ function saveSettingsUi() {
       sendScreenshot: els.sendScreenshot.checked,
       humanize: els.humanize.checked,
       streamResponses: els.streamResponses.checked,
+      language: els.language.value,
     },
   });
 }
 for (const el of [els.perceptionMode, els.sendScreenshot, els.humanize, els.streamResponses]) el.addEventListener("change", saveSettingsUi);
+els.language.addEventListener("change", () => {
+  applyI18n(els.language.value);
+  saveSettingsUi();
+});
 loadSettingsUi();
 // load the models while the user types (hides first-step model load latency)
 chrome.runtime.sendMessage({ type: MSG.WARMUP }).catch(() => {});

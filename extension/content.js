@@ -219,6 +219,67 @@ function isTypeableElement(el) {
   return !!el.isContentEditable;
 }
 
+// ---- Live action overlay ----
+// A user watching the actual tab (not the popup) otherwise sees nothing happening —
+// this draws a brief highlight box over whatever element the agent is about to act
+// on. Plain DOM + inline CSS (same "compute a viewport rect, paint a box" pattern as
+// the pixel-PII redaction boxes in lib/pixelPii.js, just live instead of baked into
+// a screenshot), no framework, nothing persisted, nothing sent anywhere.
+let overlayEl = null;
+let overlayHideTimer = null;
+let overlayRemoveTimer = null;
+const OVERLAY_VISIBLE_MS = 1200;
+const OVERLAY_FADE_MS = 250;
+
+function ensureOverlayEl() {
+  if (overlayEl && overlayEl.isConnected) return overlayEl;
+  overlayEl = document.createElement("div");
+  overlayEl.setAttribute("data-aavaran-overlay", "1");
+  overlayEl.style.cssText = [
+    "position:fixed",
+    "z-index:2147483647",
+    "pointer-events:none",
+    "box-sizing:border-box",
+    "border:2px solid #7c5cff",
+    "border-radius:4px",
+    "background:rgba(124,92,255,0.12)",
+    "box-shadow:0 0 0 2px rgba(124,92,255,0.35)",
+    "transition:opacity 200ms ease",
+    "opacity:0",
+  ].join(";");
+  (document.documentElement || document.body).appendChild(overlayEl);
+  return overlayEl;
+}
+
+/**
+ * Briefly outline `el` in the page itself so a watching user sees "about to act
+ * here". Scrolls it into view first (instantly — A.click/A.type do their own
+ * scroll too, which is then a no-op) so the box lands on the real post-scroll
+ * position rather than wherever the element was before the action ran.
+ */
+function showActionOverlay(el) {
+  if (!el || typeof el.getBoundingClientRect !== "function") return;
+  try {
+    el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  } catch {
+    /* detached element, or a browser that rejects "instant" — skip the pre-scroll */
+  }
+  const r = el.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return;
+  const box = ensureOverlayEl();
+  clearTimeout(overlayHideTimer);
+  clearTimeout(overlayRemoveTimer);
+  box.style.top = `${Math.max(0, r.top)}px`;
+  box.style.left = `${Math.max(0, r.left)}px`;
+  box.style.width = `${r.width}px`;
+  box.style.height = `${r.height}px`;
+  box.style.opacity = "1";
+  overlayHideTimer = setTimeout(() => {
+    box.style.opacity = "0";
+    overlayRemoveTimer = setTimeout(() => box.remove(), OVERLAY_FADE_MS);
+  }, OVERLAY_VISIBLE_MS);
+}
+
 async function handleAction({ action, humanize = false }) {
   const A = humanize ? HUMAN : FAST;
   try {
@@ -234,6 +295,7 @@ async function handleAction({ action, humanize = false }) {
         const clickable = el.matches('a[href], button, [role="button"], [role="link"], input')
           ? el
           : el.querySelector('a[href], button, [role="button"], [role="link"]') || el;
+        showActionOverlay(clickable);
         await A.click(clickable, { postDelay: action.ms });
         return { ok: true };
       }
@@ -246,6 +308,7 @@ async function handleAction({ action, humanize = false }) {
             error: `element ${action.targetId} does not accept typed text (${el.tagName.toLowerCase()}${el.type ? `[type=${el.type}]` : ""}) — pick a different target`,
           };
         }
+        showActionOverlay(el);
         await A.type(el, action.text ?? "");
         return { ok: true };
       }
@@ -258,6 +321,7 @@ async function handleAction({ action, humanize = false }) {
         const byValue = options.find((o) => o.value === value);
         const match = byValue || options.find((o) => o.textContent.trim() === value.trim());
         if (!match) return { ok: false, error: `no option matching ${value}` };
+        showActionOverlay(el);
         await A.select(el, match.value);
         return { ok: true };
       }
@@ -267,12 +331,14 @@ async function handleAction({ action, humanize = false }) {
         if (el.tagName !== "INPUT" || !["checkbox", "radio"].includes(el.type)) {
           return { ok: false, error: "not a checkbox/radio" };
         }
+        showActionOverlay(el);
         await A.check(el, !!action.checked);
         return { ok: true };
       }
       case "hover": {
         const el = getElementByAgentId(action.targetId);
         if (!el) return { ok: false, error: `no element ${action.targetId}` };
+        showActionOverlay(el);
         await A.hover(el);
         return { ok: true };
       }
@@ -285,6 +351,7 @@ async function handleAction({ action, humanize = false }) {
           target = el;
         }
         if (!target) return { ok: false, error: "no active element" };
+        showActionOverlay(target);
         await A.pressKey(target, action.key);
         return { ok: true };
       }
@@ -303,6 +370,7 @@ async function handleAction({ action, humanize = false }) {
             continue;
           }
           try {
+            showActionOverlay(el);
             await A.type(el, f.text ?? "");
             filled++;
             results.push({ targetId: f.targetId, ok: true });
