@@ -249,32 +249,159 @@ function normKey(type, value) {
   return `${type}:${v.toLowerCase().replace(/\s+/g, " ").trim()}`;
 }
 
+// --- surrogate generation -----------------------------------------------------
+//
+// Semantic obfuscation mode ("surrogates"): instead of an opaque [NAME_1] token, the
+// Vault can mint a plausible-but-fake replacement of the same shape ("Asha Verma"),
+// so an LLM's natural-language reasoning ("does this look like a real name?") sees
+// fluent text instead of a placeholder. The REAL value still never leaves the device:
+// it only ever exists as a key in the Vault, resolved back locally at execution time
+// exactly like a bracket token is today. All data below is synthetic (no real people).
+
+function hashSeed(s) {
+  let h = 2166136261;
+  const str = String(s);
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+// Deterministic PRNG (mulberry32) so a given seed always produces the same stream —
+// this is what makes generateSurrogate a pure, repeatable function of its inputs.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function rand() {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const pick = (rand, arr) => arr[Math.floor(rand() * arr.length) % arr.length];
+const digitsOf = (rand, n) => {
+  let s = "";
+  for (let i = 0; i < n; i++) s += Math.floor(rand() * 10);
+  return s;
+};
+
+// Indian-context synthetic name/place data, matching the project's demo-data flavor
+// (server/demo/*.html). None of these refer to real people.
+const SURR_FIRST = ["Asha", "Ananya", "Arjun", "Divya", "Farhan", "Gauri", "Harsh", "Isha", "Kabir", "Kavya", "Lakshmi", "Manav", "Meera", "Neha", "Nikhil", "Pooja", "Rahul", "Rohan", "Sana", "Tara", "Uday", "Varun", "Yash", "Zara"];
+const SURR_LAST = ["Bhatt", "Chauhan", "Desai", "Gupta", "Iyer", "Joshi", "Kapoor", "Kulkarni", "Malhotra", "Menon", "Nair", "Patel", "Pillai", "Rao", "Reddy", "Saxena", "Shetty", "Sinha", "Thakur", "Verma"];
+const SURR_CITY = ["Pune", "Jaipur", "Lucknow", "Nagpur", "Indore", "Bhopal", "Kochi", "Chandigarh", "Coimbatore", "Surat", "Nashik", "Guwahati", "Vadodara", "Ranchi", "Mysuru", "Dehradun", "Amritsar", "Bhubaneswar"];
+const SURR_STATE = ["Maharashtra", "Rajasthan", "Uttar Pradesh", "Karnataka", "Gujarat", "Punjab", "Telangana", "Odisha", "Kerala", "Haryana"];
+const SURR_STREET_WORD = ["Nagar", "Colony", "Marg", "Layout", "Cross", "Vihar", "Enclave", "Phase", "Extension", "Sector"];
+const SURR_EMAIL_DOMAIN = ["mailbox.example", "inboxmail.in", "netpost.example", "dakmail.example"];
+
+function surrogateName(rand) {
+  return `${pick(rand, SURR_FIRST)} ${pick(rand, SURR_LAST)}`;
+}
+function surrogateEmail(rand) {
+  const local = `${pick(rand, SURR_FIRST)}.${pick(rand, SURR_LAST)}${Math.floor(rand() * 90) + 10}`.toLowerCase();
+  return `${local}@${pick(rand, SURR_EMAIL_DOMAIN)}`;
+}
+function surrogatePhone(rand) {
+  // Indian mobile shape: leading 6-9, 10 digits total, grouped like the RULES regex expects.
+  const first = "6789"[Math.floor(rand() * 4)];
+  const rest = digitsOf(rand, 9);
+  return `+91 ${first}${rest.slice(0, 4)} ${rest.slice(4)}`;
+}
+function surrogateLocation(rand) {
+  return `${pick(rand, SURR_CITY)}, ${pick(rand, SURR_STATE)}`;
+}
+function surrogateAddress(rand) {
+  const house = Math.floor(rand() * 900) + 10;
+  const sector = Math.floor(rand() * 40) + 1;
+  const pincode = `${1 + Math.floor(rand() * 8)}${digitsOf(rand, 5)}`;
+  return `House No. ${house}, ${pick(rand, SURR_STREET_WORD)} ${sector}, ${pick(rand, SURR_CITY)} ${pincode}`;
+}
+
+const SURROGATE_GENERATORS = {
+  NAME: surrogateName,
+  EMAIL: surrogateEmail,
+  PHONE: surrogatePhone,
+  ADDRESS: surrogateAddress,
+  LOCATION: surrogateLocation,
+};
+
+/** Types generateSurrogate knows how to fake; everything else falls back to a bracket token. */
+export const SURROGATE_TYPES = new Set(Object.keys(SURROGATE_GENERATORS));
+
+/**
+ * Pure, deterministic surrogate generator: the same (type, realValue) always produces
+ * the same plausible-but-fake replacement — same real value -> same surrogate, so a
+ * name repeated on a page reads as the same fake name everywhere. Pass an explicit
+ * `seed` (e.g. a disambiguation counter) to get a different candidate for the same
+ * value; omit it to hash the value itself. Returns null for a type with no generator,
+ * so the caller can fall back to an opaque [TYPE_n] token.
+ */
+export function generateSurrogate(type, realValue, seed) {
+  const gen = SURROGATE_GENERATORS[type];
+  if (!gen) return null;
+  const s = seed === undefined ? hashSeed(`${type}:${String(realValue).trim().toLowerCase()}`) : seed >>> 0;
+  return gen(mulberry32(s));
+}
+
 /**
  * Local pseudonym vault. Same value -> same token for the whole task, across pages,
  * so the server can reason about identity ("[NAME_2] also appears in the To: field")
  * without learning it. Serializable for chrome.storage.session (memory-only).
+ *
+ * Redaction mode ("token" | "surrogate"): "token" (default) mints opaque [TYPE_n]
+ * placeholders, as before. "surrogate" mints a plausible fake value instead, for the
+ * types generateSurrogate supports, and falls back to a bracket token for the rest.
+ * Either way the mapping is the same shape (placeholder <-> real value) and resolve()
+ * rehydrates both forms identically — the security property (raw values stay local,
+ * only the placeholder/surrogate ever leaves the device) holds in both modes.
  */
 export class Vault {
-  constructor(state) {
-    this.map = new Map(state?.map ?? []); // key -> token
-    this.values = new Map(state?.values ?? []); // token -> value
+  constructor(state, opts = {}) {
+    this.map = new Map(state?.map ?? []); // key -> token/surrogate
+    this.values = new Map(state?.values ?? []); // token/surrogate -> real value
+    this.labels = new Map(state?.labels ?? []); // token/surrogate -> "TYPE_n" (for pixel-box marks, regardless of mode)
     this.counters = { ...(state?.counters ?? {}) };
+    this.mode = opts.mode ?? state?.mode ?? "token";
+  }
+  /** A surrogate that doesn't collide with the real value or an already-minted one. */
+  _mintSurrogate(type, value, fine) {
+    const base = `${type}:${normKey(type, value)}`;
+    const realLower = String(value).trim().toLowerCase();
+    for (let bump = 0; bump < 25; bump++) {
+      const candidate = generateSurrogate(type, value, hashSeed(`${base}:${bump}`));
+      if (!candidate) return null;
+      const taken = this.values.has(candidate) && this.values.get(candidate) !== value;
+      if (candidate.trim().toLowerCase() !== realLower && !taken) return candidate;
+    }
+    return `[${fine}]`; // pathological collision streak — fall back to a plain token
   }
   tokenFor(type, value) {
     const key = normKey(type, value);
     let tok = this.map.get(key);
     if (!tok) {
       this.counters[type] = (this.counters[type] || 0) + 1;
-      tok = `[${type}_${this.counters[type]}]`;
+      const fine = `${type}_${this.counters[type]}`;
+      tok = (this.mode === "surrogate" && this._mintSurrogate(type, value, fine)) || `[${fine}]`;
       this.map.set(key, tok);
       this.values.set(tok, value);
+      this.labels.set(tok, fine);
     }
     return tok;
   }
-  /** Replace every known token in `s` with its real value (client-side, at execution). */
+  /** "TYPE_n" for a minted token/surrogate — used to label pixel-redaction boxes. */
+  labelFor(tok) {
+    return this.labels.get(tok) ?? (tok.startsWith("[") && tok.endsWith("]") ? tok.slice(1, -1) : tok);
+  }
+  /** Replace every known token/surrogate in `s` with its real value (client-side, at execution). */
   resolve(s) {
-    if (typeof s !== "string" || !s.includes("[")) return s;
-    return s.replace(/\[([A-Z_]+_\d+)\]/g, (m) => (this.values.has(m) ? this.values.get(m) : m));
+    if (typeof s !== "string" || !s || this.values.size === 0) return s;
+    let out = s;
+    for (const [tok, value] of this.values) {
+      if (out.includes(tok)) out = out.split(tok).join(value);
+    }
+    return out;
   }
   has(token) {
     return this.values.has(token);
@@ -287,14 +414,14 @@ export class Vault {
   }
   /** [{type, value}] for vault-guided detection (local use only). */
   known() {
-    return [...this.values.entries()].map(([t, value]) => ({ type: t.slice(1, t.lastIndexOf("_")), value }));
+    return [...this.values.entries()].map(([t, value]) => ({ type: this.labelFor(t).slice(0, this.labelFor(t).lastIndexOf("_")), value }));
   }
-  /** Token -> type, no values. Safe to send: tells the server what exists, not what it is. */
+  /** Token/surrogate -> type, no real values. Safe to send: tells the server what exists, not what it is. */
   catalog() {
-    return [...this.values.keys()].map((t) => ({ token: t, type: t.slice(1, t.lastIndexOf("_")) }));
+    return [...this.values.keys()].map((t) => ({ token: t, type: this.labelFor(t).slice(0, this.labelFor(t).lastIndexOf("_")) }));
   }
   toJSON() {
-    return { map: [...this.map], values: [...this.values], counters: this.counters };
+    return { map: [...this.map], values: [...this.values], labels: [...this.labels], counters: this.counters, mode: this.mode };
   }
 }
 

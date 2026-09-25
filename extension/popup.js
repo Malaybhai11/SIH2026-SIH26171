@@ -63,6 +63,7 @@ const els = {
   previewInfo: $("previewInfo"),
   xray: $("xray"),
   perceptionMode: $("perceptionMode"),
+  redactionMode: $("redactionMode"),
   sendScreenshot: $("sendScreenshot"),
   humanize: $("humanize"),
   tabMetrics: $("tabMetrics"),
@@ -502,16 +503,22 @@ els.previewBtn.addEventListener("click", async () => {
 async function loadSettingsUi() {
   const s = (await chrome.storage.local.get("agentSettings")).agentSettings || {};
   if (s.perceptionMode) els.perceptionMode.value = s.perceptionMode;
+  if (s.redactionMode) els.redactionMode.value = s.redactionMode;
   if (s.sendScreenshot !== undefined) els.sendScreenshot.checked = !!s.sendScreenshot;
   if (s.humanize !== undefined) els.humanize.checked = !!s.humanize;
 }
 function saveSettingsUi() {
   chrome.runtime.sendMessage({
     type: MSG.SAVE_SETTINGS,
-    payload: { perceptionMode: els.perceptionMode.value, sendScreenshot: els.sendScreenshot.checked, humanize: els.humanize.checked },
+    payload: {
+      perceptionMode: els.perceptionMode.value,
+      redactionMode: els.redactionMode.value,
+      sendScreenshot: els.sendScreenshot.checked,
+      humanize: els.humanize.checked,
+    },
   });
 }
-for (const el of [els.perceptionMode, els.sendScreenshot, els.humanize]) el.addEventListener("change", saveSettingsUi);
+for (const el of [els.perceptionMode, els.redactionMode, els.sendScreenshot, els.humanize]) el.addEventListener("change", saveSettingsUi);
 loadSettingsUi();
 // load the models while the user types (hides first-step model load latency)
 chrome.runtime.sendMessage({ type: MSG.WARMUP }).catch(() => {});

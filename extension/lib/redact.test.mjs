@@ -14,6 +14,8 @@ import {
   aadhaarValid,
   gstinValid,
   detectRuleSpans,
+  generateSurrogate,
+  SURROGATE_TYPES,
 } from "./redact.js";
 
 test("luhn", () => {
@@ -122,4 +124,85 @@ test("NER spans merge with rules; rules win overlaps", async () => {
   const nerTag = async () => [{ start: 0, end: 12, type: "NAME" }, { start: 17, end: 29, type: "NAME" }];
   const r = await redactText("Rajesh Kumar at rajesh@k.com", { nerTag, vault: new Vault() });
   assert.equal(r.text, "[NAME_1] at [EMAIL_1]");
+});
+
+// --- surrogate ("semantic obfuscation") mode -----------------------------------
+
+test("generateSurrogate: deterministic per real value", () => {
+  assert.equal(generateSurrogate("NAME", "Priya Sharma"), generateSurrogate("NAME", "Priya Sharma"));
+  assert.equal(generateSurrogate("EMAIL", "priya@x.in"), generateSurrogate("EMAIL", "priya@x.in"));
+  assert.equal(generateSurrogate("PHONE", "9876543210"), generateSurrogate("PHONE", "9876543210"));
+  // case/whitespace-insensitive, mirroring the Vault's own normKey
+  assert.equal(generateSurrogate("NAME", "Priya Sharma"), generateSurrogate("NAME", "  priya sharma  "));
+});
+
+test("generateSurrogate: different real values get different surrogates", () => {
+  const names = ["Priya Sharma", "Rohan Mehta", "Ananya Iyer", "Vikram Singh", "Imran Qureshi", "Kavya Nair"].map((n) => generateSurrogate("NAME", n));
+  assert.equal(new Set(names).size, names.length);
+});
+
+test("generateSurrogate: never equals the real value, well-formed per type", () => {
+  const cases = [
+    ["NAME", "Priya Sharma"],
+    ["EMAIL", "priya.sharma@gmail.com"],
+    ["PHONE", "9876543210"],
+    ["ADDRESS", "House No. 12, Sector 15, Rohini, Delhi 110085"],
+    ["LOCATION", "Ahmedabad"],
+  ];
+  for (const [type, real] of cases) {
+    const s = generateSurrogate(type, real);
+    assert.notEqual(s.toLowerCase(), real.toLowerCase(), type);
+  }
+  assert.match(generateSurrogate("EMAIL", "a@b.com"), /^[^\s@]+@[^\s@]+\.[^\s@]+$/);
+  assert.match(generateSurrogate("PHONE", "9876543210").replace(/\D/g, ""), /^91[6-9]\d{9}$/);
+  assert.match(generateSurrogate("NAME", "a"), /^[A-Za-z]+ [A-Za-z]+$/);
+  assert.match(generateSurrogate("ADDRESS", "a"), /House No\. \d+.*\d{6}$/);
+  assert.match(generateSurrogate("LOCATION", "a"), /^[A-Za-z]+, [A-Za-z ]+$/);
+});
+
+test("generateSurrogate: unsupported types return null (caller falls back to a token)", () => {
+  assert.equal(generateSurrogate("CC", "4242424242424242"), null);
+  assert.equal(generateSurrogate("AADHAAR", "234567890124"), null);
+  assert.deepEqual([...SURROGATE_TYPES].sort(), ["ADDRESS", "EMAIL", "LOCATION", "NAME", "PHONE"]);
+});
+
+test("Vault surrogate mode: consistent per value, resolves back to the real value", async () => {
+  const v = new Vault(null, { mode: "surrogate" });
+  const a = await redactText("Mail priya@x.in, cc priya@x.in and ravi@y.in", { vault: v });
+  const [tokA, tokARepeat, tokB] = a.text.match(/[^\s,]+@[^\s,]+/g);
+  assert.equal(tokA, tokARepeat); // same address, same surrogate both times
+  assert.notEqual(tokA, "priya@x.in");
+  assert.notEqual(tokB, "ravi@y.in");
+  assert.equal(v.resolve(a.text), "Mail priya@x.in, cc priya@x.in and ravi@y.in");
+  assert.deepEqual(v.catalog().map((c) => c.type), ["EMAIL", "EMAIL"]);
+});
+
+test("Vault surrogate mode: types without a generator still fall back to a bracket token", async () => {
+  const v = new Vault(null, { mode: "surrogate" });
+  const { text } = await redactText("aadhaar 2345 6789 0124", { vault: v });
+  assert.equal(text, "aadhaar [AADHAAR_1]");
+  assert.equal(v.resolve(text), "aadhaar 2345 6789 0124");
+});
+
+test("Vault surrogate mode: default mode is still 'token' (additive, no default-behavior change)", () => {
+  const v = new Vault();
+  assert.equal(v.mode, "token");
+  assert.equal(v.tokenFor("NAME", "Priya Sharma"), "[NAME_1]");
+});
+
+test("Vault: labelFor gives a plain TYPE_n mark regardless of mode (pixel-box labels stay opaque)", () => {
+  const v = new Vault(null, { mode: "surrogate" });
+  const tok = v.tokenFor("NAME", "Priya Sharma");
+  assert.notEqual(tok, "[NAME_1]");
+  assert.equal(v.labelFor(tok), "NAME_1");
+});
+
+test("Vault surrogate mode survives JSON round-trip (chrome.storage.session)", async () => {
+  const v = new Vault(null, { mode: "surrogate" });
+  const { text } = await redactText("call 9876543210", { vault: v });
+  const v2 = new Vault(JSON.parse(JSON.stringify(v)));
+  assert.equal(v2.mode, "surrogate");
+  assert.equal(v2.resolve(text), "call 9876543210");
+  // re-tokenising the same value from the restored vault returns the same surrogate
+  assert.equal(v2.tokenFor("PHONE", "9876543210"), text.replace("call ", ""));
 });

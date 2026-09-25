@@ -22,6 +22,9 @@ export async function launch({ headless = true, dist = "dist", width = 1280, hei
       "--no-first-run",
       "--no-default-browser-check",
       "--force-device-scale-factor=1",
+      // containerised eval runners are typically root, where Chrome's setuid sandbox
+      // refuses to start at all; the container itself is the isolation boundary here.
+      ...(process.getuid && process.getuid() === 0 ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
     ],
   });
   const swTarget = await browser.waitForTarget((t) => t.type() === "service_worker" && t.url().endsWith("background.js"), { timeout: 20000 });
