@@ -133,18 +133,26 @@ Stated plainly:
 - Formal DPDP Act certification — the design is *aligned with* data-minimization and
   purpose-limitation principles; that is not the same as a legal compliance sign-off.
 
-### 10. 73.3% screen classification — is that good enough to trust in a live demo?
+### 10. 54.0% screen classification — is that good enough to trust in a live demo?
 
 That's the shipped model (CLIP fused with DOM structure), measured with **leave-domain-out
-5-fold cross-validation** over 217 screens from 96 real sites, 10 categories
+5-fold cross-validation** over 235 screens from 115 real sites, 10 categories
 (`eval/results/screens.json`) — meaning no site in a validation fold was seen in training,
-which is the honest way to test "unseen websites." Per-class accuracy is uneven: `media`
-0.90 and `code` 0.89 are strong, `reading` 0.58 and `form` 0.60 are weak (confusions
-cluster around reading↔code and auth↔error). The reason this doesn't threaten the demo's
-privacy claims: screen category is a soft context signal fused into what the server sees
-as metadata — the actual redaction decision (which *is* safety-critical) runs
-independently off DOM rects and checksum rules, not off the screen-category label. A wrong
-"form" vs "auth" guess does not cause a PII leak.
+which is the honest way to test "unseen websites." This number is down from an earlier
+73.3% measured on a smaller, less diverse 217-screen/96-site set; adding a broader real-site
+pool (including India's e-governance/banking sites for A2) didn't just add hard new
+examples — it changed the leave-domain-out fold split for the *whole* dataset, and the
+fold-independent zero-shot CLIP baseline dropped too (0.558 → 0.391), so this is a real
+generalization gap the smaller set was hiding, not a fold-shuffle artifact or a labeling
+mistake (verified by hand-checking every new capture against `eval/screens_labels.json`
+before retraining). Per-class accuracy is uneven and `media` (video/map screens) is now the
+weakest category — confused with `error` on 12 of 20 examples — alongside `code` (0.28) and
+`reading` (0.38). The reason this doesn't threaten the demo's privacy claims: screen
+category is a soft context signal fused into what the server sees as metadata — the actual
+redaction decision (which *is* safety-critical) runs independently off DOM rects and
+checksum rules, not off the screen-category label. A wrong "form" vs "auth" guess, or even a
+wrong `media` vs `error` guess, does not cause a PII leak. This gap is exactly why A2 is
+tracked as ongoing work rather than closed.
 
 ### 11. What does "0 leaks in 5 tasks" actually verify, and how rigorous is the check?
 

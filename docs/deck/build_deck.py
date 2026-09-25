@@ -164,6 +164,10 @@ def set_title(slide, t):
 S = list(prs.slides)
 pct = lambda v: f"{v * 100:.1f}%"
 scr = screens["accuracy"]
+import re as _re
+_scr_sites_m = _re.search(r"from (\d+) real sites", screens["protocol"])
+scr_sites = _scr_sites_m.group(1) if _scr_sites_m else "?"
+scr_delta_pts = round((scr["clipPlusDomPriors"] - scr["zeroShotClip"]) * 100, 1)
 ind = pii["indian_synthetic"]["rulesPlusNer"]
 ai4 = pii["ai4privacy_en"]["rulesPlusNer"]
 agg = red["aggregate"]
@@ -308,7 +312,7 @@ team_oval(s)
 footer(s)
 text(s, 0.45, 1.25, 12.4, 0.35, [[("Working prototype, measured against all five evaluation criteria (reproducible scripts in eval/):", {"size": 12, "bold": True, "color": NAVY})]])
 stats = [
-    (pct(scr["clipPlusDomPriors"]), "screen understanding on\nunseen websites (96 sites)", NAVY),
+    (pct(scr["clipPlusDomPriors"]), f"screen understanding on\nunseen websites ({scr_sites} sites)", NAVY),
     (f"{ind['f1']:.2f}", f"PII F1, Indian set\n(R {ind['recall']:.2f} · P {ind['precision']:.2f})", NAVY),
     (f"{agg['pixelPrecision']:.2f}", f"pixel redaction precision\n{round(agg['objectRecall'] * agg['gtObjects'])}/{agg['gtObjects']} sensitive objects covered", NAVY),
     (f"{eco['engineMemoryMB']:.0f}–{bal['engineMemoryMB']:.0f} MB", "total on-device engine\nmemory (eco–balanced)", NAVY),
@@ -327,7 +331,7 @@ rows = [
     ("Low-end client devices", "Models too heavy / slow", f"{bal['modelMB']:.0f} MB total; measured precision choice (FP32 YuNet 2.6× faster than INT8 in WASM, see docs/model-contract.md); eco mode {eco['engineMemoryMB']:.0f} MB; caches make an unchanged frame ~{eco['unchangedFrameMs']['median'] / 1000:.2f} s; WebGPU when present"),
     ("Missed PII = privacy leak", "Rules or NER miss a value", "Four layers: checksum rules + NER + Vault-guided matching + sensitive-field boxing; fail-closed egress gate; server re-check; audit log"),
     ("Over-redaction", "Agent loses context", "Typed, consistent tokens keep structure; checksum validation keeps order ids, PNRs, prices, IFSC readable (1/120 false alarms on hard negatives)"),
-    ("Unfamiliar UIs", "ViT not trained on screens", "Fuse pixels with DOM structure (+17.5 pts on unseen sites); element grounding via DOM + Set-of-Marks is exact"),
+    ("Unfamiliar UIs", "ViT not trained on screens", f"Fuse pixels with DOM structure (+{scr_delta_pts} pts on unseen sites); element grounding via DOM + Set-of-Marks is exact"),
     ("Server model availability", "Cloud dependence", "Any OpenAI-compatible open-weights endpoint (vLLM / Ollama offline); stateless server; mock mode for demos"),
 ]
 tbl = s.shapes.add_table(len(rows) + 1, 3, Inches(0.45), Inches(3.7), Inches(12.45), Inches(3.1)).table
