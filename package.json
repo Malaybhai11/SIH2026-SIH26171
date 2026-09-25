@@ -28,6 +28,7 @@
     "eval:ocr": "node scripts/gen_ocr_fixtures.mjs && node eval/ocr_eval.mjs",
     "eval:injection": "node eval/injection_shield_eval.mjs",
     "eval:custom-terms": "node eval/custom_terms_eval.mjs",
+    "eval:image-gate": "node eval/image_gate_eval.mjs",
     "eval:summary": "node eval/summary.mjs"
   },
   "devDependencies": {

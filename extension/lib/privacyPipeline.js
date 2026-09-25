@@ -387,7 +387,10 @@ const RELEASE_ALLOWED = {
   DOB: ["dob"],
   ADDRESS: ["address"],
   PINCODE: ["address"],
-  NAME: ["name"],
+  // A username field is a reasonable place for a NAME token — "tomsmith" typed
+  // into a "Username" field is the identity the user gave the agent to log in
+  // with, not a name leaking into an unrelated field.
+  NAME: ["name", "username"],
   LOCATION: ["address", "name"],
   // technical secrets: no field ever legitimately wants these typed into it
   IP: [],
@@ -404,6 +407,7 @@ const FIELD_CATEGORY_RULES = [
   [/account.?(no|num|number)?\b|\bifsc\b|\bupi\b|\bbank\b/i, "bank"],
   [/date of birth|\bdob\b|birth\s*date/i, "dob"],
   [/address|street|\bcity\b|pin\s*code|postal\s*code|\bzip\b/i, "address"],
+  [/user\s*name|\buser\s*id\b|\blogin\s*id\b/i, "username"],
   [/\bname\b/i, "name"],
 ];
 
@@ -464,4 +468,36 @@ export function checkTokenRelease(action, snapshot, vault, currentOrigin) {
   if (typeof action.url === "string") evalTokens(action.url, action.url, "url");
 
   return { ok: blocked.length === 0, blocked };
+}
+
+// --- D3: send-image gate ------------------------------------------------------
+//
+// "takes decision based on that" — the client should decide when the server
+// actually NEEDS pixels, not attach a screenshot to every single step by
+// default. Every step still runs the full on-device vision pass (faces, PII
+// boxes, screen state) regardless — this only gates whether the REDACTED image
+// leaves the device on top of the already-tokenised text, which is the more
+// bandwidth/latency-expensive and (even redacted) more sensitive channel.
+const IMAGE_CENTRIC_TASK_RE =
+  /\b(photo|image|picture|screenshot|scan(?:ned)?|logo|chart|diagram|graph|thumbnail|icon|colou?r|design|layout)\b|what.{0,15}(?:look|see|show)/i;
+// The on-device screen classifier isn't yet trained on a broad site corpus (see
+// A2), so its confidence on ordinary, unambiguous pages routinely sits in the
+// 0.45-0.6 band today, not because the page is actually hard to reason about
+// but because the classifier's training data doesn't cover it well yet. Gating
+// on confidence at a threshold tuned for a well-calibrated classifier would
+// send a screenshot on most steps regardless of task, defeating the gate. Kept
+// low until A2 lands and confidence becomes a meaningful signal again.
+const LOW_SCREEN_CONFIDENCE = 0.35;
+
+/**
+ * Decide whether THIS step's redacted screenshot is worth sending.
+ * @returns {{ send: boolean, reason: string }}
+ */
+export function needsScreenshot({ prompt, rois, screen }) {
+  const canvasHeavy = (rois || []).some((r) => ["canvas", "object", "embed"].includes(r.kind));
+  if (canvasHeavy) return { send: true, reason: "canvas/embedded-content region present — DOM text can't describe it" };
+  if (IMAGE_CENTRIC_TASK_RE.test(prompt || "")) return { send: true, reason: "task asks about something visual" };
+  const confidence = screen?.confidence ?? 1;
+  if (confidence < LOW_SCREEN_CONFIDENCE) return { send: true, reason: `low screen-state confidence (${confidence.toFixed(2)})` };
+  return { send: false, reason: "DOM + screen state were enough" };
 }
