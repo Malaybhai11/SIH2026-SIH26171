@@ -132,7 +132,9 @@ async function handleExtract({ targetCount = 10, collect = false, vault: vaultSt
   // screenshot and the DOM payload tell the server one consistent story
   const boxes = pixel.boxes.map((b) => {
     const tok = b.value && !/_FIELD$|^CARD$/.test(b.type) ? vault.tokenFor(b.type, b.value, { origin: location.origin }) : `[${b.type}]`;
-    return { x: b.x, y: b.y, w: b.w, h: b.h, type: b.type, label: tok.slice(1, -1), source: b.source };
+    // pixel-box marks always use the plain "TYPE_n" label, even in surrogate mode: the
+    // point of black-boxing pixels is to hide them, not to print a (fake) name on top.
+    return { x: b.x, y: b.y, w: b.w, h: b.h, type: b.type, label: vault.labelFor(tok), source: b.source };
   });
   const redactMs = Math.round(performance.now() - redactT0);
 
