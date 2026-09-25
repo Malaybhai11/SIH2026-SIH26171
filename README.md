@@ -1,102 +1,123 @@
-# Privacy-Preserving Browser Agent — SIH PS 26171
+# Aavaran — on-device visual perception for a private browser agent
 
-On-device visual perception + local redaction for a lightweight browser agent.
+**SIH 2026 · PS 26171 · ISRO / Department of Space — "On-device Visual Perception for
+Light-weight Browser Agents"**
 
-- **Client** (Chrome MV3 extension): extracts a compact DOM snapshot, runs a local
-  vision pipeline (ONNX Runtime Web, WebGPU → WASM → mock), redacts all PII locally
-  (typed tokens in text, hard black-box on the screenshot), then sends only the
-  sanitized context to the server.
-- **Server** (FastAPI): stateless `/agent/step`. Re-checks redaction (defense in depth),
-  asks an LLM (Inception Mercury 2 by default, Claude optional) for the next browser
-  action or a final answer via a strict JSON schema. Falls back to a deterministic mock
-  stepper with no API key.
-- **Eval**: `eval/metrics.py` produces the PII recall/precision + redaction-precision
-  numbers for scoring; latency is measured live in the popup.
+Aavaran (आवरण, *veil*) lets a cloud or server LLM operate your browser without ever
+seeing you. Everything on screen is perceived **in the browser** by three small models
+(face detector, vision transformer, PII NER, ~52 MB total, WebGPU/WASM). Personal data is
+replaced by consistent tokens in the text and **black-boxed at pixel level** in the
+screenshot before any request is made. The server's open-weights VLM reasons over
+`[NAME_1]`, `[AADHAAR_1]`, `FACE` and numbered UI marks, and can even *type your details
+into a form* (`type n_0003 ← [EMAIL_1]`) because the real value is substituted only on
+your device.
 
-See `docs/PRD.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/api-contract.md`,
-`docs/model-contract.md`.
+![Privacy X-ray: what the server receives from a bank KYC page](docs/img/popup_xray.png)
 
-**Comet mode**: an optional planner can split a multi-part task into independent
-sub-goals that run in parallel browser windows, then synthesize one final answer, plus
-cross-session memory/history and a richer action vocabulary (`select`, `check`, `hover`,
-`press_key`, `fill_form`, `remember`, `note`, `save_image`, `compile_report`). Simple
-single-part tasks are unaffected — see [`docs/COMET_MODE.md`](docs/COMET_MODE.md) for how
-it works and why, including the image-saving/report-compilation actions and Brave support.
+## Scorecard (measured — `eval/results/SUMMARY.md`)
 
-Works unpacked in any Chromium MV3 browser, Brave included — `chrome://extensions` /
-`brave://extensions` → Developer mode → Load unpacked → `dist/`.
+| SIH criterion | Result |
+|---|---|
+| 1 · Visual context accuracy | **73.3%** screen category on **unseen websites** (217 screens, 96 sites, leave-domain-out; pixels-only zero-shot: 55.8%) |
+| 2 · PII recall / precision | Indian PII **0.956 / 0.985** (F1 0.97) · public ai4privacy 0.751 / 0.991 · faces (WIDER) 0.78 / 0.73 |
+| 3 · Redaction precision | **0.913** pixel precision, 0.997 pixel recall, **46/46** sensitive objects covered |
+| 4 · Client resources | engine memory **37 MB** (eco) / **173 MB** (balanced) incl. WASM + weights · 52 MB models |
+| 5 · End-to-end latency | on-device perception **~0.35 s**/step (median) · 5 demo tasks in 5.8–21.8 s, all passed |
+| Privacy | server audit log searched for every raw user value after each task: **0 leaks** |
+
+*(4-core i5-4310U laptop CPU, no GPU → WASM; WebGPU machines are faster.)*
+
+## What makes it different
+
+* **DOM-grounded pixel redaction.** Text PII is found in the DOM (checksum-validated
+  Indian identifiers + on-device NER), then mapped to exact screen rectangles with
+  `Range.getClientRects()`, so no OCR guessing is involved. Faces, ID cards, signatures and
+  QR codes inside images are caught by YuNet + MobileCLIP, fused with DOM semantics
+  (alt/aria/file names).
+* **Reversible, consistent pseudonyms (the Vault).** The same person is `[NAME_1]`
+  everywhere, in the task, on every page and in the screenshot label. The server keeps
+  full reasoning ability, can act with your data, and answers "your OTP is `[OTP_1]`"; you
+  see the real number.
+* **Pixels × structure.** A ViT that never saw UIs, fused with structural DOM counts,
+  jumps from 56% to 73% screen accuracy on sites it has never seen.
+* **Adaptive compute.** Shared engine for all tabs, dHash frame cache, ROI mosaic (all
+  avatars in one 640² face pass), per-page screen cache, eco/balanced/max modes, models
+  warmed while you type.
+* **Fail-closed in three places.** A client egress gate checks every outgoing string, the
+  server re-checks and repairs, and an audit log proves what arrived. A screenshot is
+  never sent if the visible tab isn't the scanned tab.
+* **Indian context first.** Aadhaar (Verhoeff), masked Aadhaar, PAN, GSTIN (mod-36), UPI
+  VPAs, IFSC-context account numbers, Indian mobiles, PIN-code addresses, DL, EPIC,
+  passport, OTP SMS/email patterns.
+* **Open-weights server.** Any OpenAI-compatible endpoint: Qwen2.5-VL, Llama-4-Scout or
+  Gemma-3 on vLLM / Ollama / LM Studio, or a cloud host during the finale.
+
+Architecture and design rationale: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) ·
+models: [`docs/model-contract.md`](docs/model-contract.md) · API:
+[`docs/api-contract.md`](docs/api-contract.md) · evaluation: [`eval/README.md`](eval/README.md).
 
 ## Quick start
 
-### 1. Server
-
 ```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-
-cp .env.example .env      # then put your INCEPTION_API_KEY in .env
-uvicorn server.app:app --reload --port 8000
-```
-
-Provider is set in `.env` via `LLM_PROVIDER`:
-
-| value | needs | notes |
-|---|---|---|
-| `inception` (default) | `INCEPTION_API_KEY` | Mercury 2 — diffusion LLM, OpenAI-compatible, ~5–10× faster |
-| `anthropic` | `ANTHROPIC_API_KEY` + `pip install anthropic` | Claude, `AGENT_MODEL` overridable |
-| `mock` | nothing | deterministic offline stepper (also `MOCK_LLM=1`) |
-
-`GET /health` → `{"ok": true, "provider": "inception", "engine": "mercury-2"}`.
-`.env` is gitignored; commit only `.env.example`.
-
-### 2. Extension
-
-```bash
+# 1. extension
 npm install
-npm run build          # -> dist/   (npm run watch for rebuilds)
+npm run fetch-models          # ~52 MB, one time
+npm run build                 # -> dist/          (Chrome, Edge, Brave)
+npm run build:firefox         # -> dist-firefox/  (Firefox 128+)
+
+# 2. server
+python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+cp .env.example .env          # pick a provider (below)
+uvicorn server.app:app --port 8000
 ```
 
-`chrome://extensions` → enable Developer mode → **Load unpacked** → select `dist/`.
-Open any normal web page (not a `chrome://` page), click the toolbar icon, type a
-task, **Run**. Tick **Local-only** to demo perception + redaction with no server.
+Load the extension: `chrome://extensions` → Developer mode → **Load unpacked** → `dist/`
+(Firefox: `about:debugging` → Load Temporary Add-on → `dist-firefox/manifest.json`, then
+allow site access in `about:addons`). Open <http://localhost:8000/demo/>, click the Aavaran
+icon, and pick one of the demo tasks. The **Privacy X-ray** tab shows the exact frame and
+tokens the server would receive, computed on-device without any network call.
 
-The agent runs on the active tab and can **navigate, open/switch tabs, click, type,
-scroll, and go back** — so tasks like *"go to news.ycombinator.com and explain the
-Google Jail story"* or *"find the top 10 Elon Musk posts and summarize them"* work
-from any starting page. It stops at `maxIterations` (8) or when the LLM returns a
-final answer. Question tasks need a real provider (`inception`/`anthropic`); the mock
-stepper only does collection tasks.
+### Server model (`.env`)
 
-### 3. Eval
+| `LLM_PROVIDER` | Settings | Notes |
+|---|---|---|
+| `vlm` (recommended) | `VLM_BASE_URL`, `VLM_MODEL`, `VLM_API_KEY` | Open weights, sees the redacted screenshot. e.g. Ollama `http://localhost:11434/v1` + `qwen2.5vl:7b`; vLLM `Qwen/Qwen2.5-VL-7B-Instruct`; or OpenRouter/Groq-hosted Llama-4-Scout |
+| `inception` | `INCEPTION_API_KEY` | Mercury 2 (text-only, fast); used for the measured runs |
+| `anthropic` | `ANTHROPIC_API_KEY` | optional |
+| `mock` | — | offline stepper for plumbing tests |
+
+`GET /health` shows the provider; `AUDIT_LOG=1` records every request the server receives
+(`server/audit/requests.jsonl`; `GET /agent/last-received`).
+
+## Demo sites (synthetic data only)
+
+`server/demo/` holds a bank KYC page, webmail, a social feed, a checkout page and an ISRO
+outreach registration form. All people are AI-generated faces; the ID card is marked
+SPECIMEN. Every PII element carries ground-truth `data-pii` labels, which the eval uses and
+the extension never reads.
+
+## Evaluation
 
 ```bash
-npm run test:redact    # redaction unit tests
-npm run eval           # -> eval/report.json
+npm test                      # unit tests (PII engine, input simulation)
+npm run eval:pii && npm run eval:faces && npm run eval:redaction
+npm run eval:screens && npm run eval:latency && npm run eval:e2e
+npm run eval:summary          # -> eval/results/SUMMARY.md
 ```
-
-## Vision pipeline modes
-
-`visionPipeline.getMode()` → `webgpu` | `wasm` | `mock`. Without ONNX files in
-`extension/models/` it runs in **mock mode**: deterministic outputs derived from the
-screenshot + DOM hints, so the full agent loop works offline. Drop real models in per
-`extension/models/README.md` to go live.
-
-## Status vs. plan
-
-Implemented: Phase 0 (skeleton + contracts), Phase 1 (DOM + agent loop, mock + real
-LLM), Phase 2 (regex redaction layer + typed tokens + server-side leak check + eval
-harness + debug panel), Phase 3 scaffold (vision pipeline with WebGPU/WASM/mock, visual
-black-box redaction, metrics dashboard).
-
-Not yet: real ONNX model export (track C), DistilBERT-NER wiring, screen-state accuracy
-run, Firefox polyfill, second-site hardening pass. See `docs/IMPLEMENTATION_PLAN.md`.
 
 ## Layout
 
 ```
-extension/   MV3 extension source (bundled to dist/ by build.mjs)
-  lib/       messages, browserApi, domExtractor, siteConfigs, redact, visionPipeline, visualRedact
-server/      FastAPI app, /agent/step route, llm/ (prompt + schema + client), redaction_qa/
-eval/        metrics.py, run_redact.mjs, pii_test_set/, screen_state_test_set/
-docs/        PRD, implementation plan, api-contract, model-contract, architecture.mmd
+extension/            MV3 extension (Chrome + Firefox builds from one source)
+  lib/perception/     engine, YuNet, MobileCLIP, BERT-NER, WordPiece, image ops
+  lib/                pixelPii, redact (rules + Vault), screenFeatures, privacyPipeline, …
+  offscreen.*         Chrome host for the engine (Firefox runs it in the background page)
+server/               FastAPI: /agent/step (+ plan, synthesize), leak re-check, demo sites
+eval/                 reproducible metrics for all five criteria + results/
+scripts/              model download, CLIP prompt embedding
+docs/                 architecture, model + API contracts, PRD, plan
 ```
+
+Optional multi-window "Comet mode" (parallel sub-agents) is documented in
+[`docs/COMET_MODE.md`](docs/COMET_MODE.md); it is off by default because it multiplies
+client compute.
