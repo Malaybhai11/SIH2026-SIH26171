@@ -227,7 +227,13 @@ const RULES = [
     // "Room 420, Block C" is a room, not an address: need >= 3 words or a PIN code
     valid: (v) => v.trim().split(/\s+/).length >= 3 || /\b[1-9]\d{2}\s?\d{3}\b/.test(v),
   },
-  { type: "PINCODE", re: /\b(?:PIN|Pincode|Pin code|Postal code|ZIP)\s*[:\-]?\s*([1-9]\d{2}\s?\d{3})\b/gi, group: 1 },
+  // "PIN"/"ZIP"/"Postal" each optionally followed by the word "code" (with or
+  // without a space) before the label separator — "zip code 560001" was falling
+  // through here because "code" sat between the label and the digits, which the
+  // old alternation (bare "ZIP", or the fixed two-word "Pin code"/"Postal code")
+  // didn't account for on the "zip" side. \s*code\.? covers "zip code"/"zipcode"
+  // uniformly for every label instead of hand-listing each one/two-word variant.
+  { type: "PINCODE", re: /\b(?:PIN|Pincode|Postal|ZIP)(?:\s*code)?\s*[:\-]?\s*([1-9]\d{2}\s?\d{3})\b/gi, group: 1 },
 
   // --- Hindi / Devanagari script rules (B4) — separate rules rather than folding
   // into the English ones above: \b is defined over ASCII \w, so it doesn't bound
