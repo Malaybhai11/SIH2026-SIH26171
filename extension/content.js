@@ -129,7 +129,24 @@ async function handleExtract({ targetCount = 10, collect = false, vault: vaultSt
     screenFeatures: domScreenFeatures(),
     // engine-only cache key for "same page" (never sent to the server)
     pageKey: `${location.origin}${location.pathname}`,
-    // pixels the ROI enumeration can't see into (cross-origin frames)
+    // Cross-origin iframes (D1): the content script is injected into every frame
+    // (manifest all_frames:true) and each frame reports its own piiBoxes/nodes in
+    // ITS OWN local coordinates. The background script stitches every reachable
+    // frame's results into one snapshot, offsetting by the iframe's on-page rect —
+    // reported here by the PARENT frame, since only the parent's DOM has the
+    // <iframe> element to measure. A frame the background can't reach at all
+    // (sandboxed without allow-scripts, or a same-origin injection failure) has no
+    // entry in the merged snapshot, so `fullFrame` (below) still exists as the
+    // fallback: paint over its whole rectangle with a full vision pass rather than
+    // leaving it fully unredacted.
+    childFrames: [...document.querySelectorAll("iframe")]
+      .map((f) => {
+        const r = f.getBoundingClientRect();
+        return { src: f.src || f.getAttribute("src") || "", rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } };
+      })
+      .filter((c) => c.rect.w > 0 && c.rect.h > 0),
+    // pixels no readable frame's ROI enumeration can see into — refined by the
+    // background script once it knows which frames it could actually reach.
     fullFrame: [...document.querySelectorAll("iframe")].some((f) => {
       const r = f.getBoundingClientRect();
       return r.width * r.height > 40000 && r.bottom > 0 && r.top < window.innerHeight;

@@ -22,6 +22,7 @@
     "eval:latency": "node eval/latency_eval.mjs",
     "eval:e2e": "for t in register inbox kyc social checkout; do node eval/task_e2e.mjs --task $t; done",
     "eval:token-release": "node eval/token_release_eval.mjs",
+    "eval:iframe": "node eval/iframe_redaction_eval.mjs",
     "eval:summary": "node eval/summary.mjs"
   },
   "devDependencies": {
