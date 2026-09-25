@@ -454,8 +454,55 @@ export function knownValueSpans(text, known = []) {
   return out;
 }
 
-export async function detectSpans(text, { nerTag, known } = {}) {
-  const rule = [...detectRuleSpans(text), ...knownValueSpans(text, known)].map((s) => ({ ...s, source: s.source === "vault" ? "rule" : s.source, via: s.source }));
+// --- B3: user-defined sensitive terms ---------------------------------------------
+//
+// An organisation's own secrets (a project codename, an employee id format) can't be
+// in any generic PII model — the user defines them in the popup, literal words/
+// phrases or a regex pattern, and they're redacted exactly like built-in PII: same
+// vault, same tokens, same pixel boxes (the label becomes the token type, e.g. a
+// term labelled "Codename" mints [CODENAME_1]).
+export function customTermSpans(text, customTerms = []) {
+  const out = [];
+  if (!text || !customTerms?.length) return out;
+  for (const t of customTerms) {
+    if (!t || (!t.term && t.term !== 0)) continue;
+    const type = String(t.label || "CUSTOM").toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "CUSTOM";
+    if (t.isRegex) {
+      let re;
+      try {
+        re = new RegExp(t.term, "gi");
+      } catch {
+        continue; // an invalid user-supplied pattern is skipped, not a pipeline crash
+      }
+      let m;
+      let guard = 0;
+      while ((m = re.exec(text)) && guard++ < 1000) {
+        if (m[0].length === 0) {
+          re.lastIndex++;
+          continue;
+        }
+        out.push({ start: m.index, end: m.index + m[0].length, type, value: m[0], source: "custom" });
+      }
+    } else {
+      const needle = String(t.term).toLowerCase();
+      if (!needle) continue;
+      const lower = text.toLowerCase();
+      let i = lower.indexOf(needle);
+      while (i >= 0) {
+        out.push({ start: i, end: i + needle.length, type, value: text.slice(i, i + needle.length), source: "custom" });
+        i = lower.indexOf(needle, i + needle.length);
+      }
+    }
+  }
+  return out;
+}
+
+export async function detectSpans(text, { nerTag, known, customTerms } = {}) {
+  const rule = [...detectRuleSpans(text), ...knownValueSpans(text, known), ...customTermSpans(text, customTerms)].map((s) => ({
+    ...s,
+    source: s.source === "vault" || s.source === "custom" ? "rule" : s.source,
+    via: s.source,
+  }));
   if (!nerTag || text.length < 3 || !/\p{L}{2,}/u.test(text)) return resolveOverlaps(rule);
   let ner = [];
   try {

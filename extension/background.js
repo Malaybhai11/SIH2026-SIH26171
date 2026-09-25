@@ -31,6 +31,15 @@ async function loadSettings() {
   };
 }
 
+// B3: per-site privacy policy, set from the popup. "local-only" never calls the
+// real server for that host; "never-screenshot" strips the redacted screenshot
+// even when the global setting sends one; "ask-before-send" pauses for an
+// explicit decision before every server call on that host, not just risky ones.
+async function getSitePolicy(hostname) {
+  const stored = (await chrome.storage.local.get(SETTINGS_KEY).catch(() => ({})))[SETTINGS_KEY] || {};
+  return stored.sitePolicies?.[hostname] || "none";
+}
+
 // Task-scoped pseudonym vault (token <-> real value). Memory only; never persisted,
 // never broadcast, never sent. Shared by sub-agents so tokens agree across windows.
 let VAULT = new Vault();
@@ -307,6 +316,11 @@ const HARD_RISKY_KEYWORDS =
 // not a sentence that happens to contain the word.
 const SOFT_RISKY_KEYWORDS = /\b(follow|unfollow|retweet|repost|like|favorite|tweet|post tweet)\b/i;
 const SOFT_RISKY_LABEL_MAX_LEN = 24;
+
+// A task that explicitly asks the agent to authenticate ("log in with username
+// X and password Y") — see the loginWall check below: on this kind of page,
+// filling and submitting the form IS the task, not something blocking it.
+const LOGIN_TASK_RE = /\b(log\s*in|sign\s*in|login)\b.{0,80}\b(username|user\s*name|password|email)\b/i;
 
 function isRiskyAction(a, snapshot) {
   if (a.type !== "click") return false;
@@ -649,8 +663,8 @@ function mockStep(sub, reqBody, snapshot) {
   };
 }
 
-async function callServer(sub, ctx, reqBody, snapshot) {
-  if (ctx.localOnly) return mockStep(sub, reqBody, snapshot);
+async function callServer(sub, ctx, reqBody, snapshot, forceLocalOnly = false) {
+  if (ctx.localOnly || forceLocalOnly) return mockStep(sub, reqBody, snapshot);
   // fail-closed egress gate: last check of every outgoing string before the network
   const gated = egressGate(reqBody, VAULT);
   if (gated.fixes) {
@@ -819,6 +833,14 @@ async function runSubLoop(sub, ctx) {
       break;
     }
 
+    const iterHost = hostFromUrl(await getCurrentUrl(sub.tabId));
+    const sitePolicy = await getSitePolicy(iterHost);
+    const iterSettings =
+      sitePolicy === "never-screenshot" ? { ...STATE.settings, sendScreenshot: false } : STATE.settings;
+    if (sitePolicy === "local-only" && !ctx.localOnly) {
+      subLog(sub, `${iterHost}: local-only site policy — this step will not call the server`, "warn");
+    }
+
     let snapshot;
     let visual;
     let ptimings;
@@ -827,7 +849,7 @@ async function runSubLoop(sub, ctx) {
         tabId: sub.tabId,
         windowId: sub.windowId,
         vault: VAULT,
-        settings: STATE.settings,
+        settings: iterSettings,
         targetCount: sub.targetCount,
       }));
     } catch (e) {
@@ -874,7 +896,12 @@ async function runSubLoop(sub, ctx) {
       if (ctx.isCancelled()) break;
       continue; // re-perceive fresh once resumed, rather than using this stale snapshot
     }
-    if (snapshot.meta?.loginWall) {
+    // A login/sign-in page is only a "wall" (nothing to do, stop) when the task
+    // isn't asking to log in — e.g. "summarise my feed" on a logged-out site truly
+    // has nothing to read. "Log in with username X and password Y" IS the task on
+    // exactly the same kind of page, and should proceed to fill the form instead
+    // of stopping the moment it sees the form it's meant to submit.
+    if (snapshot.meta?.loginWall && !LOGIN_TASK_RE.test(sub.goal)) {
       sub.status = STATUS.DONE;
       sub.answer =
         `${host} is showing a sign-in wall, so there's no content to read. ` +
@@ -915,9 +942,21 @@ async function runSubLoop(sub, ctx) {
     // REASONING
     sub.status = STATUS.REASONING;
     await ctx.onUpdate();
+    if (sitePolicy === "ask-before-send" && !ctx.localOnly) {
+      const allowed = await awaitConfirmation(sub, ctx, {
+        actionType: "server_send",
+        description: `${iterHost}: send this step's redacted context to the server? (per-site policy: ask before every send)`,
+        kind: "site_policy",
+      });
+      if (ctx.isCancelled()) break;
+      if (!allowed) {
+        subLog(sub, `${iterHost}: send denied by user — skipping this step's reasoning`, "warn");
+        continue;
+      }
+    }
     const reqBody = await buildRequest(sub, ctx, snapshot, visual);
     const serverT0 = performance.now();
-    const resp = await callServer(sub, ctx, reqBody, snapshot);
+    const resp = await callServer(sub, ctx, reqBody, snapshot, sitePolicy === "local-only");
     const serverMs = Math.round(performance.now() - serverT0);
 
     if (typeof resp.reasoning === "string" && resp.reasoning.trim()) {
@@ -1658,8 +1697,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg?.type === MSG.SAVE_SETTINGS) {
+    // Merge, not replace — different popup controls (perception mode, custom
+    // terms, per-site policy) each save independently; a full replace from one
+    // would silently wipe out whatever another one had just stored.
     chrome.storage.local
-      .set({ [SETTINGS_KEY]: msg.payload })
+      .get(SETTINGS_KEY)
+      .then((r) => chrome.storage.local.set({ [SETTINGS_KEY]: { ...(r[SETTINGS_KEY] || {}), ...msg.payload } }))
       .then(() => sendResponse({ ok: true }))
       .catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true;
