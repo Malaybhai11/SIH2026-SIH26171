@@ -1,7 +1,12 @@
 # Build output
 /dist/
-/extension/models/*.onnx
-/extension/models/*.wasm
+/dist-firefox/
+
+# Model weights: fetched by `npm run fetch-models` (clip_labels.json is generated from
+# the 170 MB CLIP text tower, so it is committed)
+/extension/models/**
+!/extension/models/README.md
+!/extension/models/clip_labels.json
 
 # Node
 node_modules/
@@ -28,3 +33,9 @@ venv/
 .idea/
 .vscode/
 *.swp
+
+# server audit logs (demo evidence, regenerated)
+/server/audit/
+
+# deck renders
+/docs/deck/*.jpg
