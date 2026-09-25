@@ -67,6 +67,16 @@ const els = {
   humanize: $("humanize"),
   tabMetrics: $("tabMetrics"),
   tabLog: $("tabLog"),
+  tabSettings: $("tabSettings"),
+  settingsPanel: $("settingsPanel"),
+  termLabel: $("termLabel"),
+  termValue: $("termValue"),
+  termIsRegex: $("termIsRegex"),
+  termAdd: $("termAdd"),
+  termList: $("termList"),
+  sitePolicyHost: $("sitePolicyHost"),
+  sitePolicy: $("sitePolicy"),
+  downloadReport: $("downloadReport"),
 };
 
 const BADGE_CLASS = {
@@ -96,6 +106,7 @@ const TAB_PANELS = {
   redact: els.redactPanel,
   metrics: els.metricsPanel,
   log: els.logPanel,
+  settings: els.settingsPanel,
 };
 const TAB_BUTTONS = {
   task: els.tabTask,
@@ -106,6 +117,7 @@ const TAB_BUTTONS = {
   redact: els.tabRedact,
   metrics: els.tabMetrics,
   log: els.tabLog,
+  settings: els.tabSettings,
 };
 
 let activeTab = "task";
@@ -520,6 +532,117 @@ for (const el of [els.perceptionMode, els.sendScreenshot, els.humanize]) el.addE
 loadSettingsUi();
 // load the models while the user types (hides first-step model load latency)
 chrome.runtime.sendMessage({ type: MSG.WARMUP }).catch(() => {});
+
+// ---- B3: custom sensitive terms ----
+async function loadCustomTerms() {
+  const s = (await chrome.storage.local.get("agentSettings")).agentSettings || {};
+  return s.customTerms || [];
+}
+async function saveCustomTerms(terms) {
+  await chrome.runtime.sendMessage({ type: MSG.SAVE_SETTINGS, payload: { customTerms: terms } });
+}
+function renderTermList(terms) {
+  if (!terms.length) {
+    els.termList.innerHTML = `<li class="muted">No custom terms yet.</li>`;
+    return;
+  }
+  els.termList.innerHTML = terms
+    .map(
+      (t, i) =>
+        `<li><span>${escapeHtml(t.label || "CUSTOM")}<span class="term-meta"> — ${t.isRegex ? "regex " : ""}"${escapeHtml(truncate(t.term, 40))}"</span></span><button type="button" data-idx="${i}">Remove</button></li>`,
+    )
+    .join("");
+  els.termList.querySelectorAll("button[data-idx]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const terms = await loadCustomTerms();
+      terms.splice(Number(btn.dataset.idx), 1);
+      await saveCustomTerms(terms);
+      renderTermList(terms);
+    });
+  });
+}
+els.termAdd.addEventListener("click", async () => {
+  const term = els.termValue.value.trim();
+  if (!term) {
+    els.termValue.focus();
+    return;
+  }
+  if (els.termIsRegex.checked) {
+    try {
+      new RegExp(term);
+    } catch (e) {
+      els.termValue.setCustomValidity(`Invalid regex: ${e.message}`);
+      els.termValue.reportValidity();
+      return;
+    }
+  }
+  els.termValue.setCustomValidity("");
+  const terms = await loadCustomTerms();
+  terms.push({ label: els.termLabel.value.trim() || "CUSTOM", term, isRegex: els.termIsRegex.checked });
+  await saveCustomTerms(terms);
+  els.termLabel.value = "";
+  els.termValue.value = "";
+  els.termIsRegex.checked = false;
+  renderTermList(terms);
+});
+loadCustomTerms().then(renderTermList);
+
+// ---- B3: per-site privacy policy ----
+let currentSiteHost = null;
+async function loadSitePolicyUi() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const u = tab?.url ? new URL(tab.url) : null;
+    currentSiteHost = u && /^https?:$/.test(u.protocol) ? u.hostname : null;
+  } catch {
+    currentSiteHost = null;
+  }
+  els.sitePolicyHost.textContent = currentSiteHost ? `Applies to: ${currentSiteHost}` : "Open a regular web page to set a site policy.";
+  els.sitePolicy.disabled = !currentSiteHost;
+  if (!currentSiteHost) return;
+  const s = (await chrome.storage.local.get("agentSettings")).agentSettings || {};
+  els.sitePolicy.value = s.sitePolicies?.[currentSiteHost] || "none";
+}
+els.sitePolicy.addEventListener("change", async () => {
+  if (!currentSiteHost) return;
+  const s = (await chrome.storage.local.get("agentSettings")).agentSettings || {};
+  const sitePolicies = { ...(s.sitePolicies || {}) };
+  if (els.sitePolicy.value === "none") delete sitePolicies[currentSiteHost];
+  else sitePolicies[currentSiteHost] = els.sitePolicy.value;
+  await chrome.runtime.sendMessage({ type: MSG.SAVE_SETTINGS, payload: { sitePolicies } });
+});
+loadSitePolicyUi();
+
+// ---- B3: downloadable per-task privacy report ----
+els.downloadReport.addEventListener("click", () => {
+  const st = lastState;
+  if (!st) return;
+  const lines = [
+    "# Aavaran privacy report",
+    "",
+    `Generated: ${new Date().toISOString()}`,
+    `Task: ${st.prompt || "(none)"}`,
+    `Status: ${st.status}`,
+    "",
+    "## What was sent",
+    `- Bytes sent to server: ${st.privacy?.bytesSent ?? 0}`,
+    `- Redaction boxes painted: ${st.privacy?.boxesPainted ?? 0}`,
+    `- Distinct tokens minted: ${st.privacy?.tokens ?? 0}`,
+    `- Egress-gate rewrites (should be 0): ${st.privacy?.gateFixes ?? 0}`,
+    `- Token releases blocked by policy: ${st.privacy?.tokenReleaseBlocks ?? 0}`,
+    "",
+    "## Token types that existed (never the real values)",
+    ...(st.vaultCatalog?.length ? st.vaultCatalog.map((t) => `- ${t.token}: ${t.type}`) : ["(none)"]),
+    "",
+    "## Redaction summary (last step)",
+    `- Total spans redacted: ${st.lastRedactionSummary?.total ?? 0}`,
+    ...Object.entries(st.lastRedactionSummary?.byType || {}).map(([k, v]) => `  - ${k}: ${v}`),
+  ];
+  const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const filename = `aavaran-privacy-report-${(st.taskId || "task").slice(0, 8)}.md`;
+  chrome.downloads.download({ url, filename, saveAs: false }, () => URL.revokeObjectURL(url));
+});
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);

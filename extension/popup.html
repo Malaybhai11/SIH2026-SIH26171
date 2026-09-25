@@ -104,6 +104,7 @@
       <button id="tabLog" class="tab-btn" data-tab="log">
         Log <span id="logCount" class="pill">0</span>
       </button>
+      <button id="tabSettings" class="tab-btn" data-tab="settings">Privacy settings</button>
     </div>
 
     <section class="panel" id="taskPanel">
@@ -157,6 +158,38 @@
 
     <section class="panel" id="logPanel" hidden>
       <ul id="log" class="log"></ul>
+    </section>
+
+    <!-- B3: custom sensitive terms, per-site policy, downloadable privacy report. -->
+    <section class="panel" id="settingsPanel" hidden>
+      <div class="settings-block">
+        <h3>Custom sensitive terms</h3>
+        <p class="small muted">Words, phrases, or a regex pattern — redacted like built-in PII, in text and on screen.</p>
+        <div class="term-add-row">
+          <input id="termLabel" type="text" placeholder="Label (e.g. Codename)" />
+          <input id="termValue" type="text" placeholder="Term or regex pattern" />
+          <label class="opt small"><input type="checkbox" id="termIsRegex" /> regex</label>
+          <button id="termAdd" type="button">Add</button>
+        </div>
+        <ul id="termList" class="term-list small"></ul>
+      </div>
+
+      <div class="settings-block">
+        <h3>This site's privacy policy</h3>
+        <p class="small muted" id="sitePolicyHost">—</p>
+        <select id="sitePolicy">
+          <option value="none">Default (use global settings)</option>
+          <option value="local-only">Local-only — never call the server</option>
+          <option value="never-screenshot">Never send a screenshot</option>
+          <option value="ask-before-send">Ask before every send</option>
+        </select>
+      </div>
+
+      <div class="settings-block">
+        <h3>Privacy report</h3>
+        <p class="small muted">What the last/current task sent: token types, box counts, bytes, gate fixes — nothing raw.</p>
+        <button id="downloadReport" type="button">Download privacy report</button>
+      </div>
     </section>
   </body>
   <script src="popup.js" type="module"></script>

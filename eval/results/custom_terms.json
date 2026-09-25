@@ -1,0 +1,16 @@
+{
+  "generatedAt": "2026-09-25T18:10:07.029Z",
+  "customTerm": {
+    "label": "Codename",
+    "value": "<redacted in this report too>"
+  },
+  "redactedInText": true,
+  "redactedInPixels": true,
+  "rawValueLeaked": false,
+  "sitePolicy": {
+    "hostname": "localhost",
+    "policy": "local-only",
+    "taskStatus": "DONE",
+    "newServerRequests": 0
+  }
+}

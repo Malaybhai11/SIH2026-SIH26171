@@ -15,6 +15,8 @@ import {
   gstinValid,
   detectRuleSpans,
   normalizeDevanagariDigits,
+  customTermSpans,
+  detectSpans,
 } from "./redact.js";
 
 test("luhn", () => {
@@ -177,4 +179,37 @@ test("Hindi hard negatives stay untouched", () => {
   ]) {
     assert.deepEqual(detectRuleSpans(s), [], s);
   }
+});
+
+// --- B3: user-defined custom sensitive terms ---------------------------------------
+
+test("customTermSpans matches a literal term, case-insensitively, everywhere it appears", () => {
+  const terms = [{ label: "Codename", term: "Project Falcon" }];
+  const spans = customTermSpans("Update on project falcon: launch moved to March. PROJECT FALCON is on track.", terms);
+  assert.equal(spans.length, 2);
+  assert.ok(spans.every((s) => s.type === "CODENAME"));
+});
+
+test("customTermSpans supports a user regex pattern", () => {
+  const terms = [{ label: "Employee ID", term: "EMP-\\d{5}", isRegex: true }];
+  const spans = customTermSpans("Badge EMP-00231 was reissued.", terms);
+  assert.equal(spans.length, 1);
+  assert.equal(spans[0].type, "EMPLOYEE_ID");
+  assert.equal(spans[0].value, "EMP-00231");
+});
+
+test("customTermSpans skips an invalid user regex instead of throwing", () => {
+  const terms = [{ label: "Bad", term: "(unclosed", isRegex: true }];
+  assert.doesNotThrow(() => customTermSpans("some (unclosed text", terms));
+  assert.deepEqual(customTermSpans("some (unclosed text", terms), []);
+});
+
+test("a custom term is redacted through the full detectSpans pipeline, same as built-in PII", async () => {
+  const terms = [{ label: "Codename", term: "Aavaran Secret" }];
+  const spans = await detectSpans("The Aavaran Secret launch is confirmed.", { customTerms: terms });
+  assert.equal(spans.length, 1);
+  assert.equal(spans[0].type, "CODENAME");
+  const v = new Vault();
+  const { text } = await redactText("The Aavaran Secret launch is confirmed.", { vault: v, customTerms: terms });
+  assert.equal(text, "The [CODENAME_1] launch is confirmed.");
 });

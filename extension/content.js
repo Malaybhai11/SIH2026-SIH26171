@@ -39,9 +39,19 @@ async function nerBatch(texts) {
   return res.result.spans;
 }
 
+async function loadCustomTerms() {
+  try {
+    const { agentSettings } = await chrome.storage.local.get("agentSettings");
+    return agentSettings?.customTerms ?? [];
+  } catch {
+    return [];
+  }
+}
+
 async function handleExtract({ targetCount = 10, collect = false, vault: vaultState, useNer = true }) {
   const cfg = resolveSiteConfig(location.hostname);
   const perceiveT0 = performance.now();
+  const customTerms = await loadCustomTerms();
 
   // 1. DOM extraction (SPA-aware: retry until content hydrates)
   let extraction = collect
@@ -69,7 +79,7 @@ async function handleExtract({ targetCount = 10, collect = false, vault: vaultSt
   const pixT0 = performance.now();
   const ner = useNer ? nerBatch : null;
   const vault = new Vault(vaultState);
-  const pixel = await scanViewportPii(ner, vault.known());
+  const pixel = await scanViewportPii(ner, vault.known(), customTerms);
   const rois = collectImageRois();
   const marks = interactiveMarks(extraction.nodes);
   const pixelMs = Math.round(performance.now() - pixT0);
@@ -93,7 +103,7 @@ async function handleExtract({ targetCount = 10, collect = false, vault: vaultSt
     const byText = new Map(list.map((t, i) => [t, spans[i] || []]));
     nerTag = async (t) => byText.get(t) ?? [];
   }
-  const opts = { nerTag, vault, origin: location.origin };
+  const opts = { nerTag, vault, origin: location.origin, customTerms };
   // image src URLs can embed identifiers (…/users/rahul.verma/avatar.jpg): keep host only
   const nodes = extraction.nodes.map((n) => (n.src ? { ...n, src: safeUrl(n.src) } : n));
   const { nodes: sanitizedDom, log } = await redactNodes(nodes, opts);

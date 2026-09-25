@@ -100,7 +100,7 @@ function spanRects(block, start, end) {
  * @param {(texts:string[])=>Promise<Array<Array<span>>>} [nerBatch]
  * @returns {Promise<{ boxes: Array<{x,y,w,h,type,value,source}>, stats }>}  values stay in the extension
  */
-export async function scanViewportPii(nerBatch, known = []) {
+export async function scanViewportPii(nerBatch, known = [], customTerms = []) {
   const t0 = performance.now();
   const blocks = collectTextBlocks();
   let nerSpans = null;
@@ -118,7 +118,7 @@ export async function scanViewportPii(nerBatch, known = []) {
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
     const pre = nerSpans?.[i] || [];
-    const spans = await detectSpans(b.text, { nerTag: nerSpans ? async () => pre : undefined, known });
+    const spans = await detectSpans(b.text, { nerTag: nerSpans ? async () => pre : undefined, known, customTerms });
     for (const s of spans) {
       for (const r of spanRects(b, s.start, s.end)) boxes.push({ ...r, type: s.type, value: s.value, source: s.source });
     }
@@ -139,7 +139,7 @@ export async function scanViewportPii(nerBatch, known = []) {
       boxes.push({ ...v, type: "PERSONAL_FIELD", value, source: "field" });
       continue;
     }
-    const spans = await detectSpans(value, { known });
+    const spans = await detectSpans(value, { known, customTerms });
     if (spans.length) boxes.push({ ...v, type: spans[0].type, value, source: "field" });
   }
 
