@@ -1,0 +1,269 @@
+{
+  "generatedAt": "2026-09-25T19:35:50.611Z",
+  "server": "http://localhost:8010",
+  "vaultServer": "http://localhost:8011",
+  "partA_register": {
+    "token": {
+      "redactionMode": "token",
+      "tabId": 911232297,
+      "status": "DONE",
+      "wallMs": 11353,
+      "outcome": {
+        "fullname": "Priya Sharma",
+        "email": "priya.sharma@gmail.com",
+        "phone": "9876543210",
+        "city": "Ahmedabad",
+        "submitted": true
+      },
+      "formFilledWithRealValues": true,
+      "leakCheck": {
+        "secretsChecked": 4,
+        "leaked": [],
+        "requestsInspected": 5
+      },
+      "vaultCatalog": [
+        {
+          "token": "[NAME_1]",
+          "type": "NAME"
+        },
+        {
+          "token": "[EMAIL_1]",
+          "type": "EMAIL"
+        },
+        {
+          "token": "[PHONE_1]",
+          "type": "PHONE"
+        },
+        {
+          "token": "[LOCATION_1]",
+          "type": "LOCATION"
+        }
+      ],
+      "surrogatesSeenInTraffic": [
+        {
+          "token": "[NAME_1]",
+          "type": "NAME"
+        },
+        {
+          "token": "[EMAIL_1]",
+          "type": "EMAIL"
+        },
+        {
+          "token": "[PHONE_1]",
+          "type": "PHONE"
+        },
+        {
+          "token": "[LOCATION_1]",
+          "type": "LOCATION"
+        }
+      ],
+      "sentPromptSample": "Register me for the Space Science Outreach event. My name is [NAME_1], email [EMAIL_1], phone [PHONE_1], I live in [LOCATION_1]. Category Student, institution Gujarat University. Tick the consent box and submit.",
+      "log": [
+        "--- iteration 1/12 ---",
+        "redacted 1 text span(s); painted 1 box(es) [text 1, fields 0, faces 0, images 0]; screen=signup_form (0.999); ep=wasm; perception 1153ms",
+        "server → fill_form  (Fill all required text fields with the provided tokens and institution name before selecting category and submitting.)",
+        "--- iteration 2/12 ---",
+        "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 153ms",
+        "server → select n_0011 (Select the Category dropdown to choose 'Student' before submitting the registration.)",
+        "--- iteration 3/12 ---",
+        "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 101ms",
+        "server → check n_0014 (The consent checkbox is required and currently unchecked; checking it enables form submission.)",
+        "--- iteration 4/12 ---",
+        "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 72ms",
+        "server → click n_0015 (All required fields are prefilled and consent is checked; click the Register button to submit the form.)",
+        "--- iteration 5/12 ---",
+        "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 130ms",
+        "done: All required fields are filled, consent is checked, and the Register button was clicked, resulting in a success toast."
+      ]
+    },
+    "surrogate": {
+      "redactionMode": "surrogate",
+      "tabId": 911232299,
+      "status": "DONE",
+      "wallMs": 10524,
+      "outcome": {
+        "fullname": "Priya Sharma",
+        "email": "priya.sharma@gmail.com",
+        "phone": "9876543210",
+        "city": "Ahmedabad",
+        "submitted": true
+      },
+      "formFilledWithRealValues": true,
+      "leakCheck": {
+        "secretsChecked": 4,
+        "leaked": [],
+        "requestsInspected": 5
+      },
+      "vaultCatalog": [
+        {
+          "token": "Kavya Saxena",
+          "type": "NAME"
+        },
+        {
+          "token": "yash.malhotra26@inboxmail.in",
+          "type": "EMAIL"
+        },
+        {
+          "token": "+91 88418 18142",
+          "type": "PHONE"
+        },
+        {
+          "token": "Ranchi, Gujarat",
+          "type": "LOCATION"
+        }
+      ],
+      "surrogatesSeenInTraffic": [
+        {
+          "token": "Kavya Saxena",
+          "type": "NAME"
+        },
+        {
+          "token": "yash.malhotra26@inboxmail.in",
+          "type": "EMAIL"
+        },
+        {
+          "token": "+91 88418 18142",
+          "type": "PHONE"
+        },
+        {
+          "token": "Ranchi, Gujarat",
+          "type": "LOCATION"
+        }
+      ],
+      "sentPromptSample": "Register me for the Space Science Outreach event. My name is Kavya Saxena, email yash.malhotra26@inboxmail.in, phone +91 88418 18142, I live in Ranchi, Gujarat. Category Student, institution Gujarat University. Tick the consent box and submit.",
+      "log": [
+        "--- iteration 1/12 ---",
+        "redacted 1 text span(s); painted 1 box(es) [text 1, fields 0, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 79ms",
+        "server → fill_form  (Fill all required text fields with the provided personal tokens before selecting category and submitting.)",
+        "--- iteration 2/12 ---",
+        "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 77ms",
+        "server → select n_0011 (Select the Category dropdown option 'Student' before checking consent and submitting.)",
+        "--- iteration 3/12 ---",
+        "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 72ms",
+        "server → check n_0014 (Tick the required consent checkbox before submitting the registration.)",
+        "--- iteration 4/12 ---",
+        "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 70ms",
+        "server → click n_0015 (All required fields are pre-filled and consent is checked; click Register.)",
+        "--- iteration 5/12 ---",
+        "redacted 5 text span(s); painted 5 box(es) [text 1, fields 4, faces 0, images 0]; screen=signup_form (0.999); ep=wasm (frame cache hit); perception 82ms",
+        "done: All required fields are filled, consent is given, and the success toast confirms registration."
+      ]
+    }
+  },
+  "partB_vaultRoundTrip": {
+    "vaultServer": "http://localhost:8011",
+    "catalog": [
+      {
+        "token": "Manav Sinha",
+        "type": "NAME"
+      },
+      {
+        "token": "nikhil.bhatt58@netpost.example",
+        "type": "EMAIL"
+      },
+      {
+        "token": "+91 73309 89663",
+        "type": "PHONE"
+      },
+      {
+        "token": "House No. 719, Nagar 7, Nashik 376843",
+        "type": "ADDRESS"
+      },
+      {
+        "token": "Amritsar, Odisha",
+        "type": "LOCATION"
+      },
+      {
+        "token": "Ranchi, Gujarat",
+        "type": "LOCATION"
+      }
+    ],
+    "perType": [
+      {
+        "type": "NAME",
+        "real": "Rohan Mehta",
+        "detected": true,
+        "surrogate": "Manav Sinha",
+        "surrogateIsRealValue": false,
+        "dispatchResult": {
+          "ok": true
+        },
+        "fieldValueAfterExecution": "Rohan Mehta",
+        "resolvedToRealValue": true
+      },
+      {
+        "type": "EMAIL",
+        "real": "rohan.mehta@gmail.com",
+        "detected": true,
+        "surrogate": "nikhil.bhatt58@netpost.example",
+        "surrogateIsRealValue": false,
+        "dispatchResult": {
+          "ok": true
+        },
+        "fieldValueAfterExecution": "rohan.mehta@gmail.com",
+        "resolvedToRealValue": true
+      },
+      {
+        "type": "PHONE",
+        "real": "9876501234",
+        "detected": true,
+        "surrogate": "+91 73309 89663",
+        "surrogateIsRealValue": false,
+        "dispatchResult": {
+          "ok": true
+        },
+        "fieldValueAfterExecution": "9876501234",
+        "resolvedToRealValue": true
+      },
+      {
+        "type": "ADDRESS",
+        "real": "House No. 24, MG Road, Bengaluru 560001",
+        "detected": true,
+        "surrogate": "House No. 719, Nagar 7, Nashik 376843",
+        "surrogateIsRealValue": false,
+        "dispatchResult": {
+          "ok": true
+        },
+        "fieldValueAfterExecution": "House No. 24, MG Road, Bengaluru 560001",
+        "resolvedToRealValue": true
+      },
+      {
+        "type": "LOCATION",
+        "real": "Chennai",
+        "detected": true,
+        "surrogate": "Amritsar, Odisha",
+        "surrogateIsRealValue": false,
+        "dispatchResult": {
+          "ok": true
+        },
+        "fieldValueAfterExecution": "Chennai",
+        "resolvedToRealValue": true
+      }
+    ]
+  },
+  "summary": {
+    "tokenRun": {
+      "passed": true
+    },
+    "surrogateRun": {
+      "formFilledWithRealValues": true,
+      "noRawPiiLeaked": true,
+      "surrogatesSeenInTraffic": 4,
+      "passed": true
+    },
+    "vaultRoundTrip": {
+      "typesDetected": [
+        "NAME",
+        "EMAIL",
+        "PHONE",
+        "ADDRESS",
+        "LOCATION"
+      ],
+      "typesResolvedCorrectly": 5,
+      "typesTotal": 5,
+      "anySurrogateEqualedRealValue": false,
+      "passed": true
+    },
+    "overallPassed": true
+  }
+}

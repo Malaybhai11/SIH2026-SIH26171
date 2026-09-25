@@ -65,6 +65,7 @@ export async function perceiveStep({ tabId, windowId, vault, settings, targetCou
   const merged = new Vault(snapshot.vault);
   vault.map = merged.map;
   vault.values = merged.values;
+  vault.labels = merged.labels;
   vault.counters = merged.counters;
   delete snapshot.vault; // never keep a second copy of raw values around
   const pageKey = snapshot.pageKey;
@@ -179,7 +180,14 @@ export function egressGate(body, vault) {
           s = s.split(v).join(tok);
         }
       }
-      if (hasResidualPII(s)) s = applySpans(s, detectRuleSpans(s), vault);
+      // A surrogate (e.g. a fake-but-well-formed email) is deliberately PII-shaped, so
+      // hasResidualPII's pattern check can't tell it apart from a real leak. Only
+      // re-tokenise spans that aren't already a known placeholder, so a clean
+      // surrogate string passes through untouched instead of being wrapped again.
+      if (hasResidualPII(s)) {
+        const spans = detectRuleSpans(s).filter((sp) => !vault.values.has(sp.value));
+        if (spans.length) s = applySpans(s, spans, vault);
+      }
       if (s !== x) {
         fixes++;
         if (where.length < 10) where.push(path);

@@ -27,6 +27,7 @@ async function loadSettings() {
     perceptionMode: stored.perceptionMode ?? DEFAULTS.perceptionMode,
     humanize: stored.humanize ?? DEFAULTS.humanize,
     sendScreenshot: stored.sendScreenshot ?? DEFAULTS.sendScreenshot,
+    redactionMode: stored.redactionMode ?? DEFAULTS.redactionMode,
   };
 }
 
@@ -1461,8 +1462,8 @@ async function startTask({ prompt, serverUrl, localOnly, multiAgentEnabled, maxI
   }
 
   STATE = freshState();
-  VAULT = new Vault();
   STATE.settings = await loadSettings();
+  VAULT = new Vault(null, { mode: STATE.settings.redactionMode });
   STATE.taskId = crypto.randomUUID();
   STATE.prompt = prompt.trim();
   STATE.serverUrl = serverUrl || DEFAULTS.serverUrl;
@@ -1587,10 +1588,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg?.type === MSG.SAVE_SETTINGS) {
+    // Merge onto whatever is already stored: a caller that only changed one field
+    // (e.g. a single settings-row control) must not blank out the rest.
     chrome.storage.local
-      .set({ [SETTINGS_KEY]: msg.payload })
+      .get(SETTINGS_KEY)
+      .then((stored) => chrome.storage.local.set({ [SETTINGS_KEY]: { ...(stored[SETTINGS_KEY] || {}), ...msg.payload } }))
       .then(() => sendResponse({ ok: true }))
       .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+  if (msg?.type === MSG.EXECUTE_TEST_ACTION) {
+    // eval/test only (see messages.js) — same dispatchAction() a real step uses, so
+    // the rehydration path under test is the exact one a live task would run.
+    dispatchAction({ tabId: msg.tabId, windowId: msg.windowId }, msg.action)
+      .then(sendResponse)
+      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
     return true;
   }
   return false;
@@ -1606,7 +1618,7 @@ async function privacyPreview({ tabId, mode }) {
   if (!tab?.id) return { ok: false, error: "no active tab" };
   if (!(await ensureContentScript(tab.id))) return { ok: false, error: "cannot access this page" };
   const settings = { ...(await loadSettings()), ...(mode ? { perceptionMode: mode } : {}) };
-  const vault = new Vault();
+  const vault = new Vault(null, { mode: settings.redactionMode });
   const t0 = performance.now();
   const { snapshot, visual, timings } = await perceiveStep({ tabId: tab.id, windowId: tab.windowId, vault, settings, targetCount: 0 });
   if (!snapshot?.ok) return { ok: false, error: snapshot?.error ?? "perception failed" };
