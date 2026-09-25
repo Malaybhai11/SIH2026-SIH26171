@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
 import time
-from collections import deque
-from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from server.audit.store import RECENT, record_request
 from server.llm.client import decide_step, engine_label, resolve_provider, stream_step
 from server.redaction_qa.server_side_regex_check import check_and_repair, scrub_text, scrub_tree
 
@@ -21,32 +17,6 @@ router = APIRouter()
 
 # In-process QA counters (dev-time metrics; not persisted).
 QA_STATS = {"requests": 0, "leak_catch_events": 0, "leaked_spans": 0}
-
-# Server-side audit of EXACTLY what arrived (AUDIT_LOG=1): lets anyone verify the
-# privacy claim from the receiving end. The redacted image is logged as size + hash
-# (and saved alongside when AUDIT_IMAGES=1) — this is the server's view, by design.
-_AUDIT = os.environ.get("AUDIT_LOG", "").lower() in {"1", "true", "yes"}
-_AUDIT_IMAGES = os.environ.get("AUDIT_IMAGES", "").lower() in {"1", "true", "yes"}
-_AUDIT_DIR = Path(__file__).resolve().parents[1] / "audit"
-_RECENT: deque = deque(maxlen=20)
-
-
-def _audit(raw: dict) -> None:
-    entry = {k: v for k, v in raw.items() if k != "redactedScreenshot"}
-    img = raw.get("redactedScreenshot")
-    if img:
-        entry["redactedScreenshot"] = {"bytes": len(img) * 3 // 4, "sha256": hashlib.sha256(img.encode()).hexdigest()[:16]}
-    entry["_receivedAt"] = time.time()
-    _RECENT.append({**entry, "_image": img if _AUDIT_IMAGES else None})
-    if not _AUDIT:
-        return
-    _AUDIT_DIR.mkdir(exist_ok=True)
-    with open(_AUDIT_DIR / "requests.jsonl", "a") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    if img and _AUDIT_IMAGES:
-        import base64
-
-        (_AUDIT_DIR / f"{entry['redactedScreenshot']['sha256']}.jpg").write_bytes(base64.b64decode(img))
 
 
 class Rect(BaseModel):
@@ -98,7 +68,7 @@ def _prepare_llm_input(req: StepRequest) -> tuple[dict, Any]:
     string field the client sends, plus toasts. Shared by the sync and streaming routes
     so both get identical privacy guarantees."""
     QA_STATS["requests"] += 1
-    _audit(req.model_dump())
+    record_request(req.model_dump())
 
     dom_dicts = [n.model_dump() for n in req.sanitizedDom]
     qa = check_and_repair(dom_dicts)
@@ -232,5 +202,5 @@ def qa_stats() -> dict:
 @router.get("/agent/last-received")
 def last_received(n: int = 1, image: bool = False) -> list:
     """What the server actually received on the last n steps (the 'server view')."""
-    out = list(_RECENT)[-n:]
+    out = list(RECENT)[-n:]
     return [{k: v for k, v in e.items() if image or k != "_image"} for e in out]
