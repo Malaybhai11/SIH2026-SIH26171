@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from server.llm.client import decide_step
+from server.llm.client import decide_step, engine_label, resolve_provider, stream_step
 from server.redaction_qa.server_side_regex_check import check_and_repair, scrub_text, scrub_tree
 
 router = APIRouter()
@@ -92,21 +93,19 @@ class StepRequest(BaseModel):
     redactionScheme: dict[str, Any] = Field(default_factory=dict)
 
 
-@router.post("/agent/step")
-def agent_step(req: StepRequest) -> dict:
-    t0 = time.perf_counter()
+def _prepare_llm_input(req: StepRequest) -> tuple[dict, Any]:
+    """Server-side redaction QA (defense in depth) — repair, don't reject — over every
+    string field the client sends, plus toasts. Shared by the sync and streaming routes
+    so both get identical privacy guarantees."""
     QA_STATS["requests"] += 1
     _audit(req.model_dump())
 
-    # 1. Server-side redaction QA (defense in depth) — repair, don't reject.
     dom_dicts = [n.model_dump() for n in req.sanitizedDom]
     qa = check_and_repair(dom_dicts)
     if qa.leak_count:
         QA_STATS["leak_catch_events"] += 1
         QA_STATS["leaked_spans"] += qa.leak_count
 
-    # 2. Hand the repaired context to the step decider. Every other string field
-    #    (task text, tabs, accumulated items, memory) gets the same check.
     llm_input = req.model_dump()
     llm_input["sanitizedDom"] = qa.sanitized_dom
     for fld in ("prompt", "openTabs", "accumulatedData", "memoryFacts", "currentUrl", "lastActionResult"):
@@ -132,9 +131,15 @@ def agent_step(req: StepRequest) -> dict:
                     clean_toasts.append(repaired)
             llm_input["pageMeta"]["toasts"] = clean_toasts
 
-    decision, engine = decide_step(llm_input)
+    return llm_input, qa
 
-    # 3. Shape the response per the contract.
+
+def _shape_response(decision: dict, engine: str, qa: Any, t0: float) -> dict:
+    """Shapes a decide_step()/stream_step() result into the wire contract. Used by both
+    /agent/step and /agent/step/stream so a streamed call's final event is byte-for-byte
+    the same JSON shape a non-streamed call returns — existing callers that only ever
+    look at the final JSON (eval scripts, the extension's non-streaming path) keep working
+    unchanged either way."""
     if decision.get("status") == "error":
         out = decision
     elif decision.get("status") == "done":
@@ -162,6 +167,57 @@ def agent_step(req: StepRequest) -> dict:
         },
     }
     return out
+
+
+@router.post("/agent/step")
+def agent_step(req: StepRequest) -> dict:
+    t0 = time.perf_counter()
+    llm_input, qa = _prepare_llm_input(req)
+    decision, engine = decide_step(llm_input)
+    return _shape_response(decision, engine, qa, t0)
+
+
+def _sse(event: str, data: Any) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@router.post("/agent/step/stream")
+def agent_step_stream(req: StepRequest) -> StreamingResponse:
+    """Server-Sent Events variant of /agent/step, for a provider call slow enough
+    (10-90s for an open-weights VLM) that a blank-waiting popup is a bad experience.
+    Same request body and the same server-side redaction QA as /agent/step. Events:
+      status  {"phase": "received" | "waiting_for_model", ...}
+      delta   {"text": "..."}                 a fragment of the model's raw output
+      result  <the exact /agent/step response body>   always the last event
+      error   {"message": "..."}               a transport/stream-level failure
+    `result` is the contract other code should parse — `status`/`delta` are UI-only
+    progress hints and may be skipped entirely (e.g. by LLM_PROVIDER=mock, which still
+    emits them, or by a client that just reads the stream to its end)."""
+    t0 = time.perf_counter()
+    llm_input, qa = _prepare_llm_input(req)
+    provider = resolve_provider()
+
+    def gen():
+        yield _sse("status", {"phase": "received"})
+        try:
+            for kind, payload in stream_step(llm_input):
+                if kind == "status":
+                    yield _sse("status", payload)
+                elif kind == "delta":
+                    if payload:
+                        yield _sse("delta", {"text": payload})
+                elif kind == "done":
+                    engine = "mock" if provider == "mock" else engine_label()
+                    yield _sse("result", _shape_response(payload, engine, qa, t0))
+                elif kind == "error":
+                    msg = str(payload)
+                    code = "llm_malformed" if ("validation" in msg or "schema" in msg) else "llm_unavailable"
+                    decision = {"status": "error", "code": code, "message": msg[:300]}
+                    yield _sse("result", _shape_response(decision, "error", qa, t0))
+        except Exception as e:  # belt-and-suspenders — never let the generator crash silently
+            yield _sse("error", {"message": str(e)[:300]})
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/agent/qa-stats")

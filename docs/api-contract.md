@@ -71,13 +71,22 @@ turn.
 }
 ```
 
-### Item (element of `accumulatedData` / `extractedItems`)
-
-Free-form per task, but for the reference task:
+### Item (element of `accumulatedData` / `extracted` / `extractedItems`)
 
 ```jsonc
-{ "author": "@elonmusk", "text": "...", "timestamp": "...", "href": "...", "metrics": { "likes": 1234 } }
+{ "author": "@elonmusk", "text": "...", "timestamp": "...", "href": "...", "fields": { "likes": 1234 } }
 ```
+
+`author`/`text`/`timestamp`/`href` cover a quote/post/article-shaped collection; `fields`
+is an open scalar-valued bag (string/number/boolean/null) for whatever else the task is
+actually collecting — `{"title":"...","price":"₹499"}` for a product, `{"col1":"...",
+"col2":"..."}` for a table row. The server re-validates every item on the way out of
+`/agent/step` and the way into `/agent/synthesize` (`server/llm/client.py::sanitize_items`)
+regardless of provider: non-object entries are dropped, strings are capped at 500 chars,
+`fields` is capped at 20 keys, and an item left empty after that is dropped. This is
+defense against untrusted LLM/client JSON shape, not just content — the response schema's
+`additionalProperties: false` on the item object is a strong hint to the model, not a
+guarantee.
 
 ---
 
@@ -158,6 +167,39 @@ worker re-injects the content script and re-perceives.
 2. Validates its own LLM output against `action_schema.json`; one retry-with-correction on
    failure, then `status:"error", code:"llm_malformed"`.
 3. Never persists `sanitizedDom`, `redactedScreenshot`, or `accumulatedData`.
+
+---
+
+## `POST /agent/step/stream` — Server-Sent Events variant
+
+Same request body, same server-side redaction QA, as `/agent/step`. For a slow provider
+(an open-weights VLM can take 10-90s for one step) this lets a caller show progress
+instead of waiting on a blank response. `text/event-stream`, `Cache-Control: no-cache`:
+
+```
+event: status
+data: {"phase": "received"}
+
+event: status
+data: {"phase": "waiting_for_model", "provider": "vlm", "engine": "qwen2.5vl:7b"}
+
+event: delta
+data: {"text": "...fragment of the model's raw output..."}
+
+event: result
+data: { ...the exact /agent/step response body, including _debug... }
+```
+
+`result` is always the last event and is byte-for-byte what `/agent/step` would have
+returned for the same request — `server/routes/agent_step.py::_shape_response` is shared
+by both routes. `status`/`delta` are UI-only progress hints a caller may ignore entirely;
+a caller that only reads to the end of the stream and parses the last `result` event gets
+the same contract as the plain JSON endpoint. `/agent/step` itself is unchanged and remains
+the default — existing callers (eval scripts, `MOCK_LLM`/CI) need no changes.
+
+An `error` event (`{"message": "..."}`) means the stream itself broke (rare); an LLM
+failure instead surfaces as a normal `result` event with `status:"error"`, same as
+`/agent/step`.
 
 ---
 
