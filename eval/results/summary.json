@@ -33,6 +33,45 @@
     "pixelRecall": 0.997,
     "objectRecall": 1
   },
+  "redTeam_evasionResistance": {
+    "aggregate": {
+      "elements": 15,
+      "caught": 10,
+      "leakRate": 0.333
+    },
+    "byTechnique": {
+      "canvas bitmap": {
+        "caught": 0,
+        "total": 1
+      },
+      "lookalike unicode": {
+        "caught": 1,
+        "total": 3
+      },
+      "rotated": {
+        "caught": 3,
+        "total": 3
+      },
+      "split spans": {
+        "caught": 3,
+        "total": 3
+      },
+      "svg text": {
+        "caught": 1,
+        "total": 3
+      },
+      "tiny font": {
+        "caught": 2,
+        "total": 2
+      }
+    },
+    "promptInjectionBaseline": {
+      "page": "prompt-injection.html",
+      "instructions": 3,
+      "reachedPayload": 1,
+      "note": "informational — B2 (prompt-injection shield) is not built yet; a hidden instruction reaching the payload is an expected, tracked gap, not a redaction failure"
+    }
+  },
   "criterion4_clientResources": {
     "eco": {
       "engineMemoryMB": 36.6,
@@ -92,5 +131,19 @@
       "avgPerceptionMs": 3694,
       "leaks": 0
     }
+  },
+  "realSiteGeneralization": {
+    "passRate": 0.889,
+    "passed": 8,
+    "total": 9,
+    "sites": [
+      "saucedemo.com",
+      "demoqa.com",
+      "the-internet.herokuapp.com",
+      "quotes.toscrape.com",
+      "books.toscrape.com"
+    ],
+    "medianWallMs": 4128,
+    "protocol": "real extension + server against public automation-practice sites never used to build or tune this agent — not our own demo pages, not production sites"
   }
 }

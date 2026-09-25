@@ -677,8 +677,16 @@ async function waitWhilePaused(sub, ctx) {
 // The PERCEIVE -> REDACT -> REASON -> ACT loop, parameterized over a single sub-agent's
 // state instead of the module-level STATE. Runs to DONE/ERROR and never throws — callers
 // (single-agent or Promise.allSettled in multi-agent mode) can await it safely.
+// A page requiring sign-in is a dead end when the task wants content BEHIND that
+// gate (e.g. reading a logged-out profile) — but when the task's own words are "log
+// in with <credentials>", the login form IS the task, not a barrier to it. The DOM
+// heuristic that spots a login wall has no way to tell these apart (it never sees the
+// task prompt); this is that missing signal.
+const LOGIN_TASK_RE = /\b(log[\s-]?in|log[\s-]?on|sign[\s-]?in|sign[\s-]?on|authenticate)\b/i;
+
 async function runSubLoop(sub, ctx) {
   sub.targetCount = parseTargetCount(sub.goal);
+  sub.isLoginTask = LOGIN_TASK_RE.test(sub.goal);
   // Tokenise the task first: the user's own values (name, phone...) enter the vault
   // before the first screen is perceived, so they are redacted wherever they appear.
   try {
@@ -800,13 +808,16 @@ async function runSubLoop(sub, ctx) {
       if (ctx.isCancelled()) break;
       continue; // re-perceive fresh once resumed, rather than using this stale snapshot
     }
-    if (snapshot.meta?.loginWall) {
+    if (snapshot.meta?.loginWall && !sub.isLoginTask) {
       sub.status = STATUS.DONE;
       sub.answer =
         `${host} is showing a sign-in wall, so there's no content to read. ` +
         `Log in to that site in this browser, then re-run the task.`;
       subLog(sub, sub.answer, "warn");
       break;
+    }
+    if (snapshot.meta?.loginWall && sub.isLoginTask) {
+      subLog(sub, `${host} shows a sign-in form, and the task is to log in — treating it as the page to act on, not a dead end.`);
     }
     if (nodeCount === 0) {
       emptyStreak += 1;

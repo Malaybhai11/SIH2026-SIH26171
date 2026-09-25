@@ -21,6 +21,7 @@
     "eval:screens": "node eval/screens_capture.mjs && node eval/screens_train.mjs",
     "eval:latency": "node eval/latency_eval.mjs",
     "eval:e2e": "for t in register inbox kyc social checkout; do node eval/task_e2e.mjs --task $t; done",
+    "eval:benchmark": "node eval/benchmark_e2e.mjs",
     "eval:summary": "node eval/summary.mjs"
   },
   "devDependencies": {

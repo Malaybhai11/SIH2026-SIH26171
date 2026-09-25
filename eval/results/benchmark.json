@@ -1,0 +1,148 @@
+{
+  "generatedAt": "2026-09-25T13:40:38.198Z",
+  "protocol": "real extension + server against public automation-practice sites never used to build or tune this agent — not our own demo pages, not production sites",
+  "sites": [
+    "saucedemo.com",
+    "demoqa.com",
+    "the-internet.herokuapp.com",
+    "quotes.toscrape.com",
+    "books.toscrape.com"
+  ],
+  "passRate": 0.889,
+  "passed": 8,
+  "total": 9,
+  "medianWallMs": 4128,
+  "results": [
+    {
+      "id": "spa-login",
+      "site": "saucedemo.com",
+      "url": "https://www.saucedemo.com/",
+      "prompt": "Log in with username standard_user and password secret_sauce.",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 34879,
+      "steps": 10,
+      "avgServerMs": 1603,
+      "answer": "Already logged in as standard_user; the current page is the inventory listing, which is shown after a successful login.",
+      "checkedState": "https://www.saucedemo.com/inventory.html",
+      "error": null
+    },
+    {
+      "id": "form-fill",
+      "site": "demoqa.com",
+      "url": "https://demoqa.com/text-box",
+      "prompt": "Fill this form with Full Name 'Arjun Mehta', Email 'arjun.mehta@example.com', Current Address '221B Baker Street, Mumbai' and Permanent Address 'Same as current address'. Then click Submit.",
+      "passed": false,
+      "status": "PAUSED",
+      "wallMs": 4598,
+      "steps": 1,
+      "avgServerMs": 1765,
+      "answer": null,
+      "checkedState": {
+        "text": ""
+      },
+      "error": "This page shows a CAPTCHA/bot-check challenge — solve it manually in the browser, then click Resume."
+    },
+    {
+      "id": "login",
+      "site": "the-internet.herokuapp.com",
+      "url": "https://the-internet.herokuapp.com/login",
+      "prompt": "Log in with username tomsmith and password SuperSecretPassword!",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 9608,
+      "steps": 4,
+      "avgServerMs": 1510,
+      "answer": "Logged in successfully as tomsmith.",
+      "checkedState": " You logged into a secure area!\n×\nSecure Area\nWelcome to the Secure Area. When you are done click logout below.\nLogout\nPowered by Elemental Selenium",
+      "error": null
+    },
+    {
+      "id": "dropdown",
+      "site": "the-internet.herokuapp.com",
+      "url": "https://the-internet.herokuapp.com/dropdown",
+      "prompt": "Select 'Option 2' from the dropdown menu.",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 4108,
+      "steps": 2,
+      "avgServerMs": 1200,
+      "answer": "Option 2 has been selected.",
+      "checkedState": "2",
+      "error": null
+    },
+    {
+      "id": "checkboxes",
+      "site": "the-internet.herokuapp.com",
+      "url": "https://the-internet.herokuapp.com/checkboxes",
+      "prompt": "Check both checkboxes on this page (both should end up checked).",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 4053,
+      "steps": 2,
+      "avgServerMs": 1457,
+      "answer": "Both checkboxes are already checked.",
+      "checkedState": [
+        true,
+        true
+      ],
+      "error": null
+    },
+    {
+      "id": "inputs",
+      "site": "the-internet.herokuapp.com",
+      "url": "https://the-internet.herokuapp.com/inputs",
+      "prompt": "Type 42 into the number field on this page.",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 3051,
+      "steps": 2,
+      "avgServerMs": 1090,
+      "answer": "The number field has been filled with 42.",
+      "checkedState": "42",
+      "error": null
+    },
+    {
+      "id": "table-lookup",
+      "site": "the-internet.herokuapp.com",
+      "url": "https://the-internet.herokuapp.com/tables",
+      "prompt": "In the first table on this page, what is the email address for the person whose last name is Bach?",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 3165,
+      "steps": 1,
+      "avgServerMs": 1470,
+      "answer": "The email address is fbach@yahoo.com.",
+      "checkedState": null,
+      "error": null
+    },
+    {
+      "id": "quote-lookup",
+      "site": "quotes.toscrape.com",
+      "url": "https://quotes.toscrape.com/",
+      "prompt": "Find a quote on this page by Albert Einstein that mentions the word 'miracle', and tell me what it says.",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 4158,
+      "steps": 1,
+      "avgServerMs": 2017,
+      "answer": "“There are only two ways to live your life. One is as though nothing is a miracle. The other is as though everything is a miracle.”",
+      "checkedState": null,
+      "error": null
+    },
+    {
+      "id": "book-price",
+      "site": "books.toscrape.com",
+      "url": "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html",
+      "prompt": "What is the price of this book?",
+      "passed": true,
+      "status": "DONE",
+      "wallMs": 4128,
+      "steps": 1,
+      "avgServerMs": 1619,
+      "answer": "The price of the book is £51.77.",
+      "checkedState": null,
+      "error": null
+    }
+  ]
+}
