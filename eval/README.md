@@ -1,60 +1,35 @@
-# Eval harness
+# Evaluation
 
-Produces the measured numbers behind 3 of the 5 SIH scoring criteria.
+Every number comes from a script here running the **shipped** code (same modules the
+extension bundles; models through `onnxruntime-node`, or the real extension in Chrome via
+Puppeteer). Results land in `eval/results/`; `npm run eval:summary` writes
+[`results/SUMMARY.md`](results/SUMMARY.md).
 
-```
-npm run eval          # == python3 eval/metrics.py  -> writes eval/report.json
-```
+Prerequisites: `npm install && npm run fetch-models && npm run build`, and the server
+running (`uvicorn server.app:app --port 8000`, with `AUDIT_LOG=1` for the task runs).
+Chrome at `/usr/bin/google-chrome` (or `CHROME_PATH`).
 
-## What it measures
-
-| Output | Criterion | How |
+| Script | Criterion | What it measures |
 |---|---|---|
-| `pii_recall_regex_layer` | PII recall (20%) | labeled spans caught / labeled spans, **excluding** NAME/LOCATION which need the NER model |
-| `pii_precision_regex_layer` | PII precision (20%) | correct redactions / all redactions |
-| `redaction_precision` | Redaction precision (20%) | `1 − (task-relevant strings wrongly masked / total negatives)` |
-| `screen_state.accuracy` | Visual context accuracy (25%) | **stub** — wire `visionPipeline.classifyScreen` over `screen_state_test_set/*.png` once Model B exists |
-| latency | End-to-end latency (15%) | measured live in the extension (popup Metrics panel / `dashboard.html`), not here |
+| `pii_eval.mjs` | 2 | Span recall/precision/F1, rules-only vs rules+NER, per type. Corpora: 500 rows of the public ai4privacy/pii-masking-200k (English), and 360 Indian sentences from 36 templates with checksum-valid Aadhaar/GSTIN/PAN/cards and 12 hard-negative templates (order ids, PNRs, ISBNs, IFSC, prices…). |
+| `faces_eval.mjs` | 2 | YuNet precision/recall on 300 WIDER FACE val images (IoU ≥ 0.5, faces ≥ 24 px; smaller faces are ignore regions). Needs `WIDER_val.zip` + `wider_face_split.zip` from `CUHK-CSE/wider_face` unzipped in `eval/.cache/`. |
+| `redaction_eval.mjs` | 2, 3 | Real extension on the 5 demo sites. Ground truth = `data-pii` / `data-face` / `data-sensitive-img` annotations (the extension never reads them). Pixel precision/recall (micro) and per-object coverage (≥ 90% painted). |
+| `screens_capture.mjs` + `screens_train.mjs` | 1 | 217 labelled screenshots of 96 public sites + demo sites (labels checked against each capture: `screens_labels.json`). **Leave-domain-out** 5-fold: zero-shot CLIP vs CLIP+DOM fusion (shipped) vs trained linear heads. |
+| `latency_eval.mjs` | 4, 5 | Per-step on-device latency (cold, warm, unchanged frame), stage breakdown, model MB, full engine memory via `performance.measureUserAgentSpecificMemory()` (includes WASM heaps), for eco and balanced modes. |
+| `task_e2e.mjs --task …` | 5 + privacy | Runs a real task (register / inbox / kyc / social / checkout) through extension + server, checks the outcome in the page, and searches the server's received requests for every raw value of the user — any hit fails the run. |
 
-## `pii_test_set/`
+## Findings worth knowing
 
-One JSON fixture per page. Shape:
-
-```jsonc
-{
-  "id": "01_profile_page",
-  "nodes": [ { "id": "p1", "role": "...", "text": "...", "author": "..." } ],
-  "labels": {
-    "pii":       [ { "elementId": "p2", "type": "EMAIL", "value": "a@b.com" } ],
-    "negatives": [ { "elementId": "p6", "value": "task-relevant string that must survive" } ]
-  }
-}
-```
-
-`type` ∈ `EMAIL PHONE CC SSN ID ADDRESS NAME LOCATION`. Matching is span-level:
-elementId + type must be equal and the values must overlap (substring either way, so
-`+91 98765 43210` matches `98765 43210`).
-
-Current set is 5 fixtures (starter). **Target: 30–50** across profile pages, checkout
-forms, login, data tables, chat logs, and media-only pages — with a held-out 20% for a
-final unseen run reported separately.
-
-### Known hard cases (documented on purpose)
-
-- `05_news_article` lists `S. Somanath` / `Sriharikota` as **negatives**: public
-  figures / place names in a news context are task-relevant, not PII. Once NER is wired
-  it will flag these, so the redaction engine needs a context gate (e.g. don't redact
-  PER/LOC inside `role=article`/`heading` on `content`/`feed` screens). This fixture is
-  the regression guard for that gate.
-
-## `screen_state_test_set/`
-
-`labels.json` maps `filename -> state` (`login|feed|checkout|form|content|unknown`).
-Drop the matching screenshots in. Doubles as the TinyViT static-quantization
-calibration set.
-
-## Running just the redaction pass
-
-```
-node eval/run_redact.mjs eval/pii_test_set   # prints raw predictions as JSON
-```
+* **Model precision was chosen by measurement.** YuNet INT8 is 2.6× slower than FP32 in
+  WASM (QDQ overhead). MobileCLIP INT8 (dynamic) collapses zero-shot accuracy (a group
+  photo scores "chart" with p≈0.85 while FP32/FP16 say "people"); FP16 matches FP32 exactly.
+* **NER is where recall comes from:** ai4privacy recall 0.29 → 0.75 and Indian 0.61 →
+  0.96 when BERT-small is added to the rules, at unchanged ~0.99 precision.
+* **The DOM rescues screen understanding.** Zero-shot CLIP alone: 55.8% on unseen sites;
+  fused with structural counts: 73.3%. Trained linear heads did *worse* (51–58%) under
+  leave-domain-out — classes dominated by one site (GitHub, Wikipedia) never appear in
+  training folds; more site diversity is future work.
+* **Label hygiene:** 8 of the first 63 "login/signup" captures were actually bot-check walls
+  served to the headless browser; labels follow what the screen shows.
+* Numbers are from a 4-core i5-4310U laptop CPU with no GPU (WASM backend). On a machine
+  with WebGPU the CLIP/NER stages get much faster; the WASM figures are the floor.

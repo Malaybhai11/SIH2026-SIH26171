@@ -1,5 +1,33 @@
 # API Contract — `POST /agent/step`
 
+> **v2 (current) — privacy additions.** Everything below the line is the v1 base shape;
+> v2 changes what the strings contain and adds four fields. Pydantic models:
+> `server/routes/agent_step.py`.
+>
+> * **Tokens.** Every personal value is a numbered pseudonym `[TYPE_n]` (`[NAME_1]`,
+>   `[AADHAAR_1]`, `[UPI_2]`, `[OTP_1]` …). Same value → same token for the whole task,
+>   across pages and in `prompt`. The mapping lives only in the extension (Vault).
+>   Sensitive form fields never carry a value, only `value: <filled, hidden on device>`.
+> * `prompt`, `openTabs[].title`, `memoryFacts`, `currentUrl` are tokenised too;
+>   URLs lose query/fragment (`https://site/path?…`).
+> * `redactedScreenshot` — base64 **JPEG** (≤1280 px wide), already black-boxed on device;
+>   boxes are labelled with the token/category (`EMAIL_1`, `FACE`, `ID_CARD`); magenta
+>   numbered marks = interactive elements (mark N ↔ node `n_000N`). Sent when the user
+>   enables "Send redacted screenshot".
+> * `visualContext` — `{ screen: {state, category, confidence, probs}, regions:
+>   [{id, label, confidence}], facesRedacted, boxCounts }` from the on-device models.
+> * `redactionScheme` — `{ version: 2, tokens: [{token, type}], actionsMayUseTokens: true, … }`
+>   (types only, never values).
+> * **Actions may contain tokens**: `{"type":"type","targetId":"n_0003","text":"[EMAIL_1]"}`.
+>   The client substitutes the real value locally just before executing. Final answers
+>   may contain tokens too; the popup shows them resolved.
+> * Before `fetch()` the client runs a fail-closed **egress gate** over every string;
+>   the server re-checks (Aadhaar/Verhoeff, PAN, UPI, cards/Luhn, email, phones) and
+>   repairs, counting leaks in `GET /agent/qa-stats`. `GET /agent/last-received` (and
+>   `AUDIT_LOG=1` → `server/audit/requests.jsonl`) shows exactly what arrived.
+
+---
+
 `contractVersion: 1`. Frozen for the MVP. Both the extension and the server validate
 against this shape; `server/llm/action_schema.json` is the machine copy of the response
 schema.
