@@ -7,7 +7,7 @@
 // put load on real citizen-facing infrastructure — still genuinely unseen sites
 // the agent was never developed or tuned against.
 //
-//   node eval/benchmark30_eval.mjs [--task <name>]   (server must be running)
+//   node eval/benchmark30_eval.mjs [--task <name>[,<name>...]]   (server must be running)
 //
 // Writes eval/results/benchmark.json: per-task success/steps/latency/leaks, plus
 // the aggregate success rate and median latency for the scorecard.
@@ -17,7 +17,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 
 const SERVER = process.env.SERVER || "http://localhost:8000";
 const argv = process.argv;
-const only = argv.includes("--task") ? argv[argv.indexOf("--task") + 1] : null;
+const only = argv.includes("--task") ? argv[argv.indexOf("--task") + 1].split(",") : null;
 
 // pass(outcome, state) — outcome is a site.check(page) result (or null); state is
 // the final background STATE (answer, status, accumulatedData...).
@@ -314,7 +314,7 @@ async function runOne(browser, ctl, t) {
   };
 }
 
-const tasks = only ? TASKS.filter((t) => t.name === only) : TASKS;
+const tasks = only ? TASKS.filter((t) => only.includes(t.name)) : TASKS;
 const { browser, ctl } = await launch();
 await saveSettings(ctl, { perceptionMode: "balanced", humanize: false, sendScreenshot: false });
 

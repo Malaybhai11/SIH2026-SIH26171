@@ -144,6 +144,17 @@ test("Aadhaar checksum validates on Devanagari digits, same as ASCII", () => {
   assert.equal(devSpan.value, "2341 2341 2346"); // value normalised to ASCII for vault identity
 });
 
+test("PINCODE label matches 'zip code' (two words), not just bare ZIP", () => {
+  // Regression: "ZIP\s*[:-]?\s*digits" required the digits to follow the label
+  // directly, so "zip code 560001" — the word "code" sitting between the label
+  // and the number — fell through undetected and reached the server as plain
+  // text (caught live via eval/benchmark30_eval.mjs's leak check).
+  assert.equal(detectRuleSpans("zip code 560001")[0]?.type, "PINCODE");
+  assert.equal(detectRuleSpans("Zip: 560001")[0]?.type, "PINCODE");
+  assert.equal(detectRuleSpans("Postal code 560001")[0]?.type, "PINCODE");
+  assert.equal(detectRuleSpans("Pincode 560001")[0]?.type, "PINCODE");
+});
+
 test("Hindi OTP/CVV/PIN/DOB label + Devanagari digits", () => {
   assert.equal(detectRuleSpans("आपका ओटीपी ४८२९१३ है")[0]?.type, "OTP");
   assert.equal(detectRuleSpans("सीवीवी: १२३")[0]?.type, "CVV");
