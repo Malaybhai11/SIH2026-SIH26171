@@ -204,3 +204,114 @@ export function rehydrateAction(action, vault) {
   if (Array.isArray(a.fields)) a.fields = a.fields.map((f) => ({ ...f, text: vault.resolve(f.text ?? "") }));
   return a;
 }
+
+// --- B1: token release policy --------------------------------------------------
+//
+// Trust boundary: the server only ever sees tokens ([PHONE_1], [AADHAAR_2] ...),
+// but the CLIENT resolves them to real values right before typing. A page can try
+// to manipulate the agent (via its own content, or an injected instruction) into
+// putting a real value somewhere it doesn't belong — e.g. typing the user's phone
+// number, captured from a profile page, into an unrelated site's comment box. A
+// token may be released into a field only when the field's own visible meaning
+// (label/placeholder text) matches the token's PII type, AND — for values read off
+// a page rather than typed by the user — the release happens on the same origin
+// the value was first seen on. Anything else pauses for an explicit user decision.
+
+// token type -> field categories it may legitimately be typed into
+const RELEASE_ALLOWED = {
+  EMAIL: ["email"],
+  PHONE: ["phone"],
+  CC: ["card"],
+  CVV: ["card"],
+  PASSWORD: ["password"],
+  OTP: ["otp"],
+  SSN: ["id"],
+  AADHAAR: ["id"],
+  PAN: ["id"],
+  PASSPORT: ["id"],
+  VOTER_ID: ["id"],
+  DRIVING_LICENSE: ["id"],
+  GSTIN: ["id"],
+  BANK_ACCOUNT: ["bank", "id"],
+  UPI: ["bank", "id"],
+  DOB: ["dob"],
+  ADDRESS: ["address"],
+  PINCODE: ["address"],
+  NAME: ["name"],
+  LOCATION: ["address", "name"],
+  // technical secrets: no field ever legitimately wants these typed into it
+  IP: [],
+  SECRET: [],
+};
+
+const FIELD_CATEGORY_RULES = [
+  [/\be-?mail\b/i, "email"],
+  [/\b(phone|mobile|\btel\b|contact\s*(no|number))\b/i, "phone"],
+  [/pass(word|wd|code)?\b|\bpwd\b/i, "password"],
+  [/\botp\b|one[- ]?time\s*(password|code)|verification\s*code/i, "otp"],
+  [/card.?(no|num|number)?\b|\bcvv\b|\bcvc\b|credit\s*card|debit\s*card/i, "card"],
+  [/aadh?aa?r|\bpan\b|passport|voter\s*id|driving\s*licen[cs]e|\bgstin\b|\bssn\b/i, "id"],
+  [/account.?(no|num|number)?\b|\bifsc\b|\bupi\b|\bbank\b/i, "bank"],
+  [/date of birth|\bdob\b|birth\s*date/i, "dob"],
+  [/address|street|\bcity\b|pin\s*code|postal\s*code|\bzip\b/i, "address"],
+  [/\bname\b/i, "name"],
+];
+
+/** Guess what kind of value a form field expects from its visible label/placeholder text. */
+export function guessFieldPiiCategory(labelText) {
+  const t = String(labelText || "");
+  for (const [re, cat] of FIELD_CATEGORY_RULES) if (re.test(t)) return cat;
+  return "unknown";
+}
+
+const TOKEN_RE = /\[([A-Z_]+)_\d+\]/g;
+
+function tokensIn(s) {
+  if (typeof s !== "string" || !s.includes("[")) return [];
+  return [...s.matchAll(TOKEN_RE)].map((m) => m[0]);
+}
+
+/**
+ * Evaluate whether an action may release the real values behind its tokens.
+ * @returns {{ ok: boolean, blocked: Array<{token,type,category,target,reason}> }}
+ */
+export function checkTokenRelease(action, snapshot, vault, currentOrigin) {
+  const blocked = [];
+  const nodeText = (targetId) => (snapshot?.sanitizedDom || []).find((n) => n.id === targetId)?.text || "";
+
+  const evalTokens = (str, target, category) => {
+    for (const token of tokensIn(str)) {
+      const type = vault.typeOf(token);
+      const allowed = RELEASE_ALLOWED[type];
+      if (allowed === undefined) continue; // not a PII token type this policy governs
+      const fieldOk = allowed.length > 0 && allowed.includes(category);
+      const tokenOrigin = vault.originOf(token);
+      const originOk = tokenOrigin === null || tokenOrigin === currentOrigin;
+      if (!fieldOk || !originOk) {
+        blocked.push({
+          token,
+          type,
+          category,
+          target,
+          reason: !fieldOk
+            ? category === "url"
+              ? `${type} token would leave the device inside a URL — never allowed`
+              : `${type} token does not belong in a "${category}" field`
+            : `${type} token was captured on ${tokenOrigin}, not ${currentOrigin}`,
+        });
+      }
+    }
+  };
+
+  if (typeof action.text === "string") {
+    evalTokens(action.text, action.targetId || "(field)", guessFieldPiiCategory(nodeText(action.targetId)));
+  }
+  if (Array.isArray(action.fields)) {
+    for (const f of action.fields) evalTokens(f.text || "", f.targetId || "(field)", guessFieldPiiCategory(nodeText(f.targetId)));
+  }
+  // URLs (navigate/open_tab): no legitimate reason for a token to appear here —
+  // this is the classic exfiltration path (PII in a query string to a 3rd party).
+  if (typeof action.url === "string") evalTokens(action.url, action.url, "url");
+
+  return { ok: blocked.length === 0, blocked };
+}

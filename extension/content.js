@@ -92,7 +92,7 @@ async function handleExtract({ targetCount = 10, collect = false, vault: vaultSt
     const byText = new Map(list.map((t, i) => [t, spans[i] || []]));
     nerTag = async (t) => byText.get(t) ?? [];
   }
-  const opts = { nerTag, vault };
+  const opts = { nerTag, vault, origin: location.origin };
   // image src URLs can embed identifiers (…/users/rahul.verma/avatar.jpg): keep host only
   const nodes = extraction.nodes.map((n) => (n.src ? { ...n, src: safeUrl(n.src) } : n));
   const { nodes: sanitizedDom, log } = await redactNodes(nodes, opts);
@@ -108,7 +108,7 @@ async function handleExtract({ targetCount = 10, collect = false, vault: vaultSt
   // pixel boxes get the SAME token as the text layer ("EMAIL_1") so the redacted
   // screenshot and the DOM payload tell the server one consistent story
   const boxes = pixel.boxes.map((b) => {
-    const tok = b.value && !/_FIELD$|^CARD$/.test(b.type) ? vault.tokenFor(b.type, b.value) : `[${b.type}]`;
+    const tok = b.value && !/_FIELD$|^CARD$/.test(b.type) ? vault.tokenFor(b.type, b.value, { origin: location.origin }) : `[${b.type}]`;
     return { x: b.x, y: b.y, w: b.w, h: b.h, type: b.type, label: tok.slice(1, -1), source: b.source };
   });
   const redactMs = Math.round(performance.now() - redactT0);

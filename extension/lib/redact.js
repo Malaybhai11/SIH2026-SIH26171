@@ -259,8 +259,12 @@ export class Vault {
     this.map = new Map(state?.map ?? []); // key -> token
     this.values = new Map(state?.values ?? []); // token -> value
     this.counters = { ...(state?.counters ?? {}) };
+    // Provenance for the token release policy (B1): the page origin a value was
+    // first seen on, or null for values the user typed into the task prompt.
+    // First-seen wins — never overwritten once set.
+    this.origins = new Map(state?.origins ?? []); // token -> origin | null
   }
-  tokenFor(type, value) {
+  tokenFor(type, value, meta = {}) {
     const key = normKey(type, value);
     let tok = this.map.get(key);
     if (!tok) {
@@ -269,7 +273,17 @@ export class Vault {
       this.map.set(key, tok);
       this.values.set(tok, value);
     }
+    if (!this.origins.has(tok) && meta.origin !== undefined) this.origins.set(tok, meta.origin);
     return tok;
+  }
+  /** "AADHAAR" style fine type from a "[AADHAAR_1]" token, or null. */
+  typeOf(token) {
+    const m = /^\[([A-Z_]+)_\d+\]$/.exec(token || "");
+    return m ? m[1] : null;
+  }
+  /** Page origin the token's value was first seen on, or null (user-supplied / unknown). */
+  originOf(token) {
+    return this.origins.get(token) ?? null;
   }
   /** Replace every known token in `s` with its real value (client-side, at execution). */
   resolve(s) {
@@ -294,21 +308,21 @@ export class Vault {
     return [...this.values.keys()].map((t) => ({ token: t, type: t.slice(1, t.lastIndexOf("_")) }));
   }
   toJSON() {
-    return { map: [...this.map], values: [...this.values], counters: this.counters };
+    return { map: [...this.map], values: [...this.values], counters: this.counters, origins: [...this.origins] };
   }
 }
 
 // --- application --------------------------------------------------------------------
 
-function tokenFor(span, vault) {
-  if (vault) return vault.tokenFor(span.type, span.value);
+function tokenFor(span, vault, origin) {
+  if (vault) return vault.tokenFor(span.type, span.value, { origin });
   return TOKENS[COARSE[span.type] ?? "ID"];
 }
 
 /** Replace spans (non-overlapping, any order) with tokens. */
-export function applySpans(text, spans, vault) {
+export function applySpans(text, spans, vault, origin) {
   // assign tokens in reading order (so numbering reads naturally), splice right-to-left
-  const toks = [...spans].sort((a, b) => a.start - b.start).map((s) => [s, tokenFor(s, vault)]);
+  const toks = [...spans].sort((a, b) => a.start - b.start).map((s) => [s, tokenFor(s, vault, origin)]);
   let out = text;
   for (let i = toks.length - 1; i >= 0; i--) {
     const [s, tok] = toks[i];
@@ -394,7 +408,7 @@ export async function redactText(input, opts = {}) {
   if (!input || typeof input !== "string") return { text: input ?? "", hits: [] };
   const spans = await detectSpans(input, { ...opts, known: opts.known ?? opts.vault?.known() });
   return {
-    text: applySpans(input, spans, opts.vault),
+    text: applySpans(input, spans, opts.vault, opts.origin),
     hits: spans.map((s) => ({ type: opts.vault ? s.type : COARSE[s.type], fine: s.type, value: s.value, start: s.start, end: s.end, source: s.source })),
   };
 }

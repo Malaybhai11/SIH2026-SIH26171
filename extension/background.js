@@ -18,6 +18,7 @@ import {
   sanitizeUrl,
   tokenizeOutgoing,
   backgroundNerTag,
+  checkTokenRelease,
 } from "./lib/privacyPipeline.js";
 
 const SETTINGS_KEY = "agentSettings";
@@ -88,7 +89,8 @@ function freshState() {
     lastVisual: null,
     lastRedactedImage: null,
     vaultCatalog: [],
-    privacy: { gateFixes: 0, boxesPainted: 0, tokens: 0, bytesSent: 0 },
+    privacy: { gateFixes: 0, boxesPainted: 0, tokens: 0, bytesSent: 0, tokenReleaseBlocks: 0 },
+    tokenReleaseLog: [],
   };
 }
 
@@ -665,6 +667,39 @@ function mirrorSubToState(sub) {
 // automatic pause on a detected CAPTCHA wall) without exiting runSubLoop's while
 // loop — a paused loop should idle, not be treated as finished. Callers are
 // responsible for restoring sub.status once this returns (it only sets PAUSED).
+// Pause and wait for an explicit user decision. STATE.pendingConfirmation is a
+// single global slot — if another sub-agent already claimed it, wait for it to
+// clear before claiming it for ourselves so two sub-agents never stomp each other.
+// Shared by the risky-action gate (a click that looks irreversible) and the token
+// release gate (B1: a token about to be typed somewhere it doesn't belong).
+async function awaitConfirmation(sub, ctx, { actionType, targetId = null, description, kind = "risky_action" }) {
+  while (STATE.pendingConfirmation && !ctx.isCancelled()) {
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  if (ctx.isCancelled()) return false;
+
+  const prevSubStatus = sub.status;
+  const prevStateStatus = STATE.status;
+  STATE.pendingConfirmation = { subId: sub.id, actionType, targetId, description, kind, resolution: null };
+  STATE.status = STATUS.AWAITING_CONFIRMATION;
+  sub.status = STATUS.AWAITING_CONFIRMATION;
+  subLog(sub, `awaiting confirmation (${kind}): ${description}`, "warn");
+  await ctx.onUpdate();
+
+  while (!STATE.pendingConfirmation?.resolution && !ctx.isCancelled()) {
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  const resolution = ctx.isCancelled() ? "deny" : STATE.pendingConfirmation?.resolution;
+  STATE.pendingConfirmation = null;
+  STATE.status = prevStateStatus;
+  sub.status = prevSubStatus;
+  await ctx.onUpdate();
+
+  const allowed = resolution === "allow";
+  subLog(sub, `${allowed ? "allowed by user" : `denied${ctx.isCancelled() ? " (cancelled)" : ""}`}: ${description}`, allowed ? "info" : "warn");
+  return allowed;
+}
+
 async function waitWhilePaused(sub, ctx) {
   if (!ctx.isPaused()) return;
   sub.status = STATUS.PAUSED;
@@ -1013,47 +1048,44 @@ async function runSubLoop(sub, ctx) {
       break;
     }
 
+    // Token release gate (B1): a server that only ever sees tokens can still try to
+    // direct the client to type a real value somewhere it doesn't belong — a
+    // malicious page's own content (or an injected instruction) asking the agent to
+    // put a captured phone number into an unrelated comment box, or a value into a
+    // navigate URL (classic exfiltration). Block and ask before releasing anything
+    // that fails the policy; every decision is logged regardless of outcome.
+    {
+      let currentOrigin = null;
+      try {
+        currentOrigin = new URL(await getCurrentUrl(sub.tabId)).origin;
+      } catch {}
+      const release = checkTokenRelease(a, snapshot, VAULT, currentOrigin);
+      if (!release.ok) {
+        STATE.privacy.tokenReleaseBlocks = (STATE.privacy.tokenReleaseBlocks || 0) + release.blocked.length;
+        for (const b of release.blocked) {
+          STATE.tokenReleaseLog.push({ t: Date.now(), actionType: a.type, ...b });
+          if (STATE.tokenReleaseLog.length > 100) STATE.tokenReleaseLog.shift();
+        }
+        const summary = release.blocked.map((b) => `${b.type} (${b.reason})`).join("; ");
+        const allowed = await awaitConfirmation(sub, ctx, {
+          actionType: a.type,
+          targetId: a.targetId ?? null,
+          description: `release ${summary} via ${a.type}`,
+          kind: "token_release",
+        });
+        if (ctx.isCancelled()) break;
+        if (!allowed) continue; // re-perceive/re-decide next turn rather than dispatching
+      }
+    }
+
     // Risky-action confirmation gate: pause and wait for an explicit user decision
     // before dispatching a click on something that looks irreversible/consequential.
-    // STATE.pendingConfirmation is a single global slot — if another sub-agent
-    // already claimed it, wait for it to clear before claiming it for ourselves so
-    // two sub-agents never stomp each other.
     if (isRiskyAction(a, snapshot)) {
-      while (STATE.pendingConfirmation && !ctx.isCancelled()) {
-        await new Promise((r) => setTimeout(r, 500));
-      }
-      if (ctx.isCancelled()) break;
-
       const node = (snapshot.sanitizedDom || []).find((n) => n.id === a.targetId);
       const description = String(node?.text || `${a.type} on ${a.targetId ?? "element"}`).slice(0, 200);
-      const prevSubStatus = sub.status;
-      const prevStateStatus = STATE.status;
-      STATE.pendingConfirmation = {
-        subId: sub.id,
-        actionType: a.type,
-        targetId: a.targetId ?? null,
-        description,
-        resolution: null,
-      };
-      STATE.status = STATUS.AWAITING_CONFIRMATION;
-      sub.status = STATUS.AWAITING_CONFIRMATION;
-      subLog(sub, `awaiting confirmation for risky action: ${a.type} "${description}"`, "warn");
-      await ctx.onUpdate();
-
-      while (!STATE.pendingConfirmation?.resolution && !ctx.isCancelled()) {
-        await new Promise((r) => setTimeout(r, 500));
-      }
-      const resolution = ctx.isCancelled() ? "deny" : STATE.pendingConfirmation?.resolution;
-      STATE.pendingConfirmation = null;
-      STATE.status = prevStateStatus;
-      sub.status = prevSubStatus;
-      await ctx.onUpdate();
-
-      if (resolution !== "allow") {
-        subLog(sub, `action denied${ctx.isCancelled() ? " (cancelled)" : ""}: ${a.type} "${description}"`, "warn");
-        continue; // re-perceive/re-decide next turn rather than dispatching
-      }
-      subLog(sub, `action allowed by user: ${a.type} "${description}"`);
+      const allowed = await awaitConfirmation(sub, ctx, { actionType: a.type, targetId: a.targetId ?? null, description, kind: "risky_action" });
+      if (ctx.isCancelled()) break;
+      if (!allowed) continue; // re-perceive/re-decide next turn rather than dispatching
     }
 
     const detail = a.url || a.targetId || (a.amount != null ? `${a.amount}px` : "");
