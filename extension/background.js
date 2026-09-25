@@ -19,6 +19,7 @@ import {
   tokenizeOutgoing,
   backgroundNerTag,
   checkTokenRelease,
+  needsScreenshot,
 } from "./lib/privacyPipeline.js";
 
 const SETTINGS_KEY = "agentSettings";
@@ -573,7 +574,15 @@ async function buildRequest(sub, ctx, snapshot, visual) {
   const memoryFacts = await Promise.all(
     (ctx.memoryFacts ?? []).map(async (f) => (typeof f === "string" ? tokenizeOutgoing(f, VAULT, nerTag) : { ...f, value: await tokenizeOutgoing(String(f.value ?? ""), VAULT, nerTag) })),
   );
-  const includeImage = !!STATE.settings?.sendScreenshot && !!visual?.redactedImage;
+  // D3: the popup's "send redacted screenshot" toggle is the user's ceiling (off
+  // means never, full stop); when it's on, the client still only actually attaches
+  // the image on steps that need it — canvas-heavy pages, an image-centric task,
+  // or when the on-device screen classifier itself isn't confident.
+  const gate = STATE.settings?.sendScreenshot
+    ? needsScreenshot({ prompt: sub.goal, rois: snapshot.rois, screen: visual?.screen })
+    : { send: false, reason: "sendScreenshot setting is off" };
+  sub.lastImageGate = gate;
+  const includeImage = gate.send && !!visual?.redactedImage;
   return {
     contractVersion: CONTRACT_VERSION,
     taskId: ctx.taskId,
@@ -977,6 +986,8 @@ async function runSubLoop(sub, ctx) {
       cacheHit: !!visual?.cacheHit,
       serverMs,
       totalMs: Math.round(performance.now() - iterT0),
+      imageSent: !!sub.lastImageGate?.send,
+      imageGateReason: sub.lastImageGate?.reason ?? null,
     });
     try {
       STATE.engineStats = await perception("stats");

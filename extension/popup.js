@@ -449,17 +449,20 @@ function render(state) {
       </div>`
     : "";
   if (iters.length) {
-    const head = `<tr><th>#</th><th>DOM</th><th>text PII</th><th>vision</th><th>paint</th><th>server</th><th>total</th></tr>`;
+    const head = `<tr><th>#</th><th>DOM</th><th>text PII</th><th>vision</th><th>paint</th><th>server</th><th>total</th><th>image</th></tr>`;
     const body = iters
       .map(
         (m) =>
-          `<tr><td>${m.iteration}</td><td>${m.domMs ?? "-"}</td><td>${m.textPiiMs ?? "-"}</td><td>${m.visionMs ?? "-"}${m.cacheHit ? "*" : ""}</td><td>${m.paintMs ?? "-"}</td><td>${m.serverMs ?? "-"}</td><td>${m.totalMs ?? "-"}</td></tr>`,
+          `<tr><td>${m.iteration}</td><td>${m.domMs ?? "-"}</td><td>${m.textPiiMs ?? "-"}</td><td>${m.visionMs ?? "-"}${m.cacheHit ? "*" : ""}</td><td>${m.paintMs ?? "-"}</td><td>${m.serverMs ?? "-"}</td><td>${m.totalMs ?? "-"}</td><td title="${escapeHtml(m.imageGateReason || "")}">${m.imageSent ? "sent" : "-"}</td></tr>`,
       )
       .join("");
     const avg = (k) => Math.round(iters.reduce((a, m) => a + (m[k] || 0), 0) / iters.length);
+    const imageSentN = iters.filter((m) => m.imageSent).length;
+    const imageSentPct = Math.round((100 * imageSentN) / iters.length);
     els.metricsBody.innerHTML =
       engHtml +
-      `<table class="metrics">${head}${body}</table><p class="muted">avg on-device perception ${avg("perceptionMs")} ms · avg step ${avg("totalMs")} ms · * = frame cache hit</p>`;
+      `<table class="metrics">${head}${body}</table><p class="muted">avg on-device perception ${avg("perceptionMs")} ms · avg step ${avg("totalMs")} ms · * = frame cache hit</p>` +
+      `<p class="muted">screenshot sent on ${imageSentN}/${iters.length} step(s) (${imageSentPct}%) — hover a row's "image" cell for the gate's reason</p>`;
   } else {
     els.metricsBody.innerHTML = engHtml + `<p class="muted">No iterations yet.</p>`;
   }

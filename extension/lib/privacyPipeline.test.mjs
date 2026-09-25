@@ -1,7 +1,30 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkTokenRelease, guessFieldPiiCategory } from "./privacyPipeline.js";
+import { checkTokenRelease, guessFieldPiiCategory, needsScreenshot } from "./privacyPipeline.js";
 import { Vault } from "./redact.js";
+
+test("needsScreenshot sends when a canvas/embedded region is present", () => {
+  const r = needsScreenshot({ prompt: "fill the form", rois: [{ kind: "canvas" }], screen: { confidence: 0.9 } });
+  assert.equal(r.send, true);
+  assert.match(r.reason, /canvas/);
+});
+
+test("needsScreenshot sends for image-centric task language", () => {
+  const r = needsScreenshot({ prompt: "What does the logo look like?", rois: [], screen: { confidence: 0.9 } });
+  assert.equal(r.send, true);
+  assert.match(r.reason, /visual/);
+});
+
+test("needsScreenshot sends when screen-state confidence is very low", () => {
+  const r = needsScreenshot({ prompt: "click submit", rois: [], screen: { confidence: 0.1 } });
+  assert.equal(r.send, true);
+  assert.match(r.reason, /confidence/);
+});
+
+test("needsScreenshot skips the image when DOM + screen state are enough", () => {
+  const r = needsScreenshot({ prompt: "fill in my name and submit", rois: [{ kind: "input" }], screen: { confidence: 0.9 } });
+  assert.equal(r.send, false);
+});
 
 function snapshotWithField(targetId, labelText) {
   return { sanitizedDom: [{ id: targetId, role: "textbox", text: labelText }] };
