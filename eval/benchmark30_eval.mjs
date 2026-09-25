@@ -268,10 +268,20 @@ async function runOne(browser, ctl, t) {
     (prompt) => chrome.runtime.sendMessage({ type: "RUN_TASK", payload: { prompt, serverUrl: "http://localhost:8000/agent/step", localOnly: false, multiAgentEnabled: false, maxIterations: 10 } }),
     t.prompt,
   );
+  // A real user sitting at the popup would click "Allow" on a risky-action or
+  // token-release confirmation; this benchmark measures task-completion
+  // capability, not that gate itself (see eval/token_release_eval.mjs for that),
+  // so auto-approve exactly what a cooperating user would. Without this, every
+  // task that types PII into a real form field would stall on the confirmation's
+  // own (intentionally generous, see background.js CONFIRMATION_TIMEOUT_MS)
+  // timeout instead of exercising the task.
   let state;
   for (;;) {
     await new Promise((r) => setTimeout(r, 800));
     state = await ctl.evaluate(() => chrome.runtime.sendMessage({ type: "GET_STATE" })).then((r) => r.state);
+    if (state.status === "AWAITING_CONFIRMATION") {
+      await ctl.evaluate(() => chrome.runtime.sendMessage({ type: "CONFIRM_ACTION", payload: { allow: true } }));
+    }
     if (["DONE", "ERROR"].includes(state.status) || Date.now() - t0 > 90000) break;
   }
   const wallMs = Date.now() - t0;
