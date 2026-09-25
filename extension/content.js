@@ -14,6 +14,7 @@ import {
   getElementByAgentId,
 } from "./lib/domExtractor.js";
 import { redactNodes, redactText, scrubLog, Vault } from "./lib/redact.js";
+import { scanForInjection } from "./lib/injectionShield.js";
 import { scanViewportPii, collectImageRois, interactiveMarks } from "./lib/pixelPii.js";
 import { domScreenFeatures } from "./lib/screenFeatures.js";
 import {
@@ -97,6 +98,18 @@ async function handleExtract({ targetCount = 10, collect = false, vault: vaultSt
   const nodes = extraction.nodes.map((n) => (n.src ? { ...n, src: safeUrl(n.src) } : n));
   const { nodes: sanitizedDom, log } = await redactNodes(nodes, opts);
 
+  // B2: flag text that reads like an instruction aimed at an agent rather than
+  // page content — the invisible-text gate above (domExtractor) stops most of
+  // this, but the same trick works in plain sight too (a review, a comment, a
+  // product description). Flagged, not dropped: the server prompt (B2) treats
+  // flagged text as untrusted DATA to reason about, never as an instruction to
+  // follow — same trust boundary as the redaction tokens themselves.
+  const injectionHits = scanForInjection(sanitizedDom);
+  if (injectionHits.length) {
+    const flagged = new Set(injectionHits.map((h) => h.elementId));
+    for (const n of sanitizedDom) if (flagged.has(n.id)) n.untrusted = true;
+  }
+
   const sanitizedToasts = [];
   for (const t of extraction.meta?.toasts ?? []) {
     const { text, hits } = await redactText(t, opts);
@@ -122,6 +135,9 @@ async function handleExtract({ targetCount = 10, collect = false, vault: vaultSt
       url: undefined,
       title,
       toasts: sanitizedToasts,
+      // counts + short snippets only (already-redacted text) — never a reason to
+      // hide MORE from the user than the redaction layer already does
+      injectionAttempts: injectionHits,
     },
     exhausted: extraction.exhausted ?? false,
     viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1, scrollX: window.scrollX, scrollY: window.scrollY },
