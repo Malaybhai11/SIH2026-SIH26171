@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-24T17:24:56.168Z",
+  "generatedAt": "2026-09-25T17:20:08.582Z",
   "engine": "rules (regex + Luhn/Verhoeff/GSTIN validators) + BERT-small PII NER INT8 (29 MB)",
   "ai4privacy_en": {
     "source": "ai4privacy/pii-masking-200k english, first 500 rows",
@@ -75,14 +75,14 @@
     },
     "rulesPlusNer": {
       "recall": 0.751,
-      "precision": 0.991,
+      "precision": 0.99,
       "f1": 0.854,
       "goldSpans": 743,
-      "predictedSpans": 668,
-      "nerMsPerSentence": 16,
+      "predictedSpans": 667,
+      "nerMsPerSentence": 2.9,
       "perType": {
         "ADDRESS": {
-          "recall": 0.624,
+          "recall": 0.632,
           "falsePositives": 0,
           "n": 125
         },
@@ -117,13 +117,13 @@
           "n": 58
         },
         "LOCATION": {
-          "recall": 0.812,
+          "recall": 0.8,
           "falsePositives": 3,
           "n": 85
         },
         "NAME": {
           "recall": 0.861,
-          "falsePositives": 3,
+          "falsePositives": 4,
           "n": 238
         },
         "PASSWORD": {
@@ -260,7 +260,7 @@
         "sentences": 120,
         "falseAlarms": 1
       },
-      "nerMsPerSentence": 5.4,
+      "nerMsPerSentence": 1,
       "perType": {
         "AADHAAR": {
           "recall": 1,
@@ -351,6 +351,73 @@
           "recall": 1,
           "falsePositives": 0,
           "n": 10
+        }
+      }
+    }
+  },
+  "hindi_devanagari": {
+    "source": "150 sentences from 17 templates (12 with PII, 5 hard-negative), Aadhaar/OTP/CVV in Devanagari digits",
+    "rulesOnly": {
+      "recall": 0.929,
+      "precision": 1,
+      "f1": 0.963,
+      "goldSpans": 126,
+      "predictedSpans": 117,
+      "hardNegatives": {
+        "sentences": 42,
+        "falseAlarms": 0
+      },
+      "nerMsPerSentence": 0,
+      "perType": {
+        "AADHAAR": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 9
+        },
+        "ADDRESS": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 9
+        },
+        "BANK_ACCOUNT": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 9
+        },
+        "CVV": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 9
+        },
+        "DOB": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 9
+        },
+        "LOCATION": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 9
+        },
+        "NAME": {
+          "recall": 0.75,
+          "falsePositives": 0,
+          "n": 36
+        },
+        "OTP": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 18
+        },
+        "PHONE": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 9
+        },
+        "PINCODE": {
+          "recall": 1,
+          "falsePositives": 0,
+          "n": 9
         }
       }
     }

@@ -130,7 +130,47 @@ const HOUSE = String.raw`(?:(?:Flat|House|Plot|Door|Shop|Qtr|H|D)\.?\s*(?:No\.?)
 const ADDR_WORD = String.raw`(?:Road|Rd|Marg|Nagar|Colony|Street|St|Lane|Ln|Sector|Layout|Cross|Main|Block|Phase|Society|Apartments?|Apts?|Enclave|Vihar|Puram|Chowk|Bazaar|Bazar|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Court|Ct|Way|Place|Pl|Square|Sq|Terrace|Parkway|Pkwy|Highway|Hwy|Gali|Mohalla|Extension|Ext|Tower|Residency|Heights|Park)`;
 
 // identifiers that look like phone numbers but follow a reference label
-const REF_CONTEXT = /\b(?:PNR|order|invoice|ref(?:erence)?|txn|transaction(?: id)?|UTR|tracking|AWB|ticket|booking|train|flight)\s*(?:no\.?|number|id)?\s*[:#]?\s*$/i;
+const REF_CONTEXT =
+  /(?:\b(?:PNR|order|invoice|ref(?:erence)?|txn|transaction(?: id)?|UTR|tracking|AWB|ticket|booking|train|flight)\s*(?:no\.?|number|id)?\s*[:#]?|(?:पीएनआर|ऑर्डर|चालान|संदर्भ|लेनदेन|ट्रैकिंग|टिकट|बुकिंग|ट्रेन)\s*(?:नंबर|सं\.?)?\s*[:#]?)\s*$/i;
+
+// --- B4: Hindi / Devanagari PII --------------------------------------------------
+//
+// Devanagari digits (०-९, U+0966-U+096F) are drop-in 1-for-1 substitutes for ASCII
+// digits — same string length, same character positions — so every existing
+// digit-based rule above (Aadhaar/Verhoeff, phone, OTP, CVV, PIN, bank account,
+// DOB) already works on Hindi numerals once the string they scan has been
+// normalised. detectRuleSpans() below runs every rule against a normalised COPY
+// of the text; span start/end stay valid on the ORIGINAL string because the
+// substitution never changes length or count.
+export function normalizeDevanagariDigits(s) {
+  return s.replace(/[०-९]/g, (c) => String(c.charCodeAt(0) - 0x0966));
+}
+
+// Loose "Devanagari word character": letters + vowel signs/virama, deliberately
+// EXCLUDING the danda/double-danda punctuation (U+0964-U+0965, sentence-final —
+// it must stop a name/address match, not extend it) and the digit block
+// (U+0966-U+096F — handled separately by normalizeDevanagariDigits above; a
+// "word" here should never accidentally swallow an adjacent number).
+const HI_WORD = String.raw`[ऀ-ॣ॰-ॿ]+`;
+
+// Honorific + name: Hindi has no capitalisation to lean on (unlike the English
+// NAME rule, which is NER-only), so a name is recognised by the title in front of
+// it — the same cue a human reader uses. Bounded to 1-4 Devanagari words so it
+// doesn't run on into the rest of the sentence.
+const HI_HONORIFIC = String.raw`(?:श्रीमती|श्री|सुश्री|कुमारी|डॉ\.?|डॉक्टर)`;
+// Common postpositions/particles/verbs that must stop a name match ("रोहन मेहता का
+// फोन" is a name followed by "of phone", not a 4-word name) — Hindi has no
+// capitalisation to mark where a name ends, so this stoplist does that job.
+const HI_STOP = String.raw`(?:का|की|के|ने|को|से|में|पर|है|हैं|था|थी|और|या|यह|वह|तथा|एवं|साथ)`;
+
+// Hindi address vocabulary (locality/street words) mirroring ADDR_WORD, plus the
+// house/plot markers that precede an address in Hindi government and e-commerce
+// forms. Rules run against the digit-normalised text (see detectRuleSpans), so
+// these use plain \d exactly like the English rules above.
+const HI_HOUSE = String.raw`(?:मकान|प्लॉट|फ्लैट|दुकान)\s*(?:नंबर|नं\.?|सं\.?)?\s*[:#]?\s*\d[\wऀ-ॣ॰-ॿ/-]*`;
+const HI_ADDR_WORD = String.raw`(?:मार्ग|नगर|गली|सड़क|कॉलोनी|चौक|विहार|पुरम|सेक्टर|गांव|गाँव|जिला|ज़िला|तहसील|ब्लॉक|अपार्टमेंट|सोसाइटी|रोड|एन्क्लेव|टावर)`;
+
+const HI_CITY = String.raw`(?:मुंबई|मुम्बई|दिल्ली|नई\s*दिल्ली|बेंगलुरु|बैंगलोर|चेन्नई|कोलकाता|हैदराबाद|पुणे|अहमदाबाद|जयपुर|लखनऊ|कोच्चि|इंदौर|भोपाल|चंडीगढ़|नागपुर|सूरत|पटना|गुवाहाटी|वाराणसी|देहरादून|मैसूरु|रांची|भुवनेश्वर|तिरुवनंतपुरम)`;
 
 const RULES = [
   { type: "SECRET", re: /\b(?:sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g },
@@ -188,16 +228,49 @@ const RULES = [
     valid: (v) => v.trim().split(/\s+/).length >= 3 || /\b[1-9]\d{2}\s?\d{3}\b/.test(v),
   },
   { type: "PINCODE", re: /\b(?:PIN|Pincode|Pin code|Postal code|ZIP)\s*[:\-]?\s*([1-9]\d{2}\s?\d{3})\b/gi, group: 1 },
+
+  // --- Hindi / Devanagari script rules (B4) — separate rules rather than folding
+  // into the English ones above: \b is defined over ASCII \w, so it doesn't bound
+  // correctly at a Devanagari word (whitespace and Devanagari letters are both \W,
+  // so no transition — see HI_WORD comment). A mixed sentence that keeps "OTP",
+  // "CVV" etc. as English loanwords (very common in Indian SMS/forms) already
+  // matches the English rules above unchanged; these cover the Devanagari-script
+  // label spelling.
+  { type: "OTP", re: new RegExp(String.raw`(?:ओटीपी|वन[- ]टाइम\s*(?:पासवर्ड|कोड)|सत्यापन\s*कोड)[^0-9\n]{0,24}(\d{4,8})`, "g"), group: 1 },
+  { type: "CVV", re: new RegExp(String.raw`(?:सीवीवी|सुरक्षा\s*कोड)[^0-9\n]{0,20}(\d{3,4})`, "g"), group: 1 },
+  { type: "DOB", re: new RegExp(String.raw`(?:जन्म\s*तिथि|जन्मतिथि|डीओबी)\s*[:\-]?\s*(\d{1,2}[\/\-. ]\d{1,2}[\/\-. ]\d{2,4})`, "g"), group: 1 },
+  { type: "PINCODE", re: new RegExp(String.raw`(?:पिन\s*कोड|डाक\s*कोड|पिनकोड)\s*[:\-]?\s*([1-9]\d{2}\s?\d{3})`, "g"), group: 1 },
+  {
+    type: "BANK_ACCOUNT",
+    re: new RegExp(String.raw`(?:खाता\s*(?:संख्या|नंबर|क्रमांक)|अकाउंट\s*नंबर)\s*[:\-]?\s*(\d[\d\s-]{5,20}\d)`, "g"),
+    group: 1,
+    valid: (v) => v.replace(/\D/g, "").length >= 6,
+  },
+  {
+    type: "NAME",
+    // Bounded to 1-2 words (the overwhelming majority of Hindi personal names in
+    // these contexts): a 3rd word is almost always the next clause ("...ने आवेदन
+    // किया"), a city ("...चंडीगढ़ से आए"), or another particle, not more of the name.
+    re: new RegExp(String.raw`${HI_HONORIFIC}\s+(${HI_WORD}(?:\s+(?!${HI_STOP}(?:\s|$|[।॥,.])|${HI_CITY})${HI_WORD}){0,1})`, "g"),
+    group: 1,
+  },
+  {
+    type: "ADDRESS",
+    re: new RegExp(String.raw`${HI_HOUSE}[,\s]+(?:${HI_WORD}[,\s]+){0,6}?${HI_ADDR_WORD}(?:[,\s]+${HI_WORD}){0,3}(?:[,\s]+[1-9]\d{2}\s?\d{3})?`, "g"),
+    valid: (v) => v.trim().split(/\s+/).length >= 3 || /[1-9]\d{2}\s?\d{3}/.test(v),
+  },
+  { type: "LOCATION", re: new RegExp(HI_CITY, "g") },
 ];
 
-/** Rule layer: spans on the ORIGINAL text. */
+/** Rule layer: spans on the ORIGINAL text (Devanagari digits normalised to ASCII first — see normalizeDevanagariDigits; the substitution is 1-for-1, so span offsets stay valid on the original string). */
 export function detectRuleSpans(text) {
   if (!text || typeof text !== "string") return [];
+  const normalized = normalizeDevanagariDigits(text);
   const spans = [];
   for (const rule of RULES) {
     rule.re.lastIndex = 0;
     let m;
-    while ((m = rule.re.exec(text))) {
+    while ((m = rule.re.exec(normalized))) {
       if (m[0].length === 0) {
         rule.re.lastIndex++;
         continue;
@@ -212,8 +285,8 @@ export function detectRuleSpans(text) {
       // trim trailing separators / whitespace
       const trimmed = value.replace(/[\s,.;:-]+$/, "");
       if (!trimmed) continue;
-      if (rule.valid && !rule.valid(trimmed, m, text)) continue;
-      if (rule.notAfter && rule.notAfter.test(text.slice(Math.max(0, start - 24), start))) continue;
+      if (rule.valid && !rule.valid(trimmed, m, normalized)) continue;
+      if (rule.notAfter && rule.notAfter.test(normalized.slice(Math.max(0, start - 24), start))) continue;
       spans.push({ start, end: start + trimmed.length, type: rule.type, value: trimmed, source: "rule" });
     }
   }
