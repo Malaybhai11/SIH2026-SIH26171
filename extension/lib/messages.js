@@ -66,6 +66,11 @@ export const DEFAULTS = Object.freeze({
   humanize: false,
   // Attach the redacted, Set-of-Marks-annotated screenshot for the server VLM.
   sendScreenshot: true,
+  // Opt-in: consume /agent/step/stream (SSE) instead of /agent/step, so the popup can
+  // show "waiting for model..." / partial reasoning instead of a blank REASONING
+  // status during a slow provider call. Falls back to the plain request on any
+  // stream-level failure. Off by default — the plain request is the well-tested path.
+  streamResponses: false,
 });
 
 // chrome.storage.session key holding the live task state object.

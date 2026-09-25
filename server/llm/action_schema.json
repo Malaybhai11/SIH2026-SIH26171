@@ -48,7 +48,12 @@
           "author": { "type": ["string", "null"] },
           "text": { "type": ["string", "null"] },
           "timestamp": { "type": ["string", "null"] },
-          "href": { "type": ["string", "null"] }
+          "href": { "type": ["string", "null"] },
+          "fields": {
+            "type": ["object", "null"],
+            "description": "extra structured attributes beyond author/text/timestamp/href — e.g. {\"title\":\"...\",\"price\":\"₹499\"} for a product, {\"col1\":\"...\",\"col2\":\"...\"} for a table row. Scalar values only (string/number/boolean/null), server-truncated and capped.",
+            "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+          }
         },
         "additionalProperties": false
       }
@@ -62,7 +67,12 @@
           "author": { "type": ["string", "null"] },
           "text": { "type": ["string", "null"] },
           "timestamp": { "type": ["string", "null"] },
-          "href": { "type": ["string", "null"] }
+          "href": { "type": ["string", "null"] },
+          "fields": {
+            "type": ["object", "null"],
+            "description": "extra structured attributes beyond author/text/timestamp/href — e.g. {\"title\":\"...\",\"price\":\"₹499\"} for a product, {\"col1\":\"...\",\"col2\":\"...\"} for a table row. Scalar values only (string/number/boolean/null), server-truncated and capped.",
+            "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+          }
         },
         "additionalProperties": false
       }

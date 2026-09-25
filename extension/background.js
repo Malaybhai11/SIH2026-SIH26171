@@ -27,6 +27,7 @@ async function loadSettings() {
     perceptionMode: stored.perceptionMode ?? DEFAULTS.perceptionMode,
     humanize: stored.humanize ?? DEFAULTS.humanize,
     sendScreenshot: stored.sendScreenshot ?? DEFAULTS.sendScreenshot,
+    streamResponses: stored.streamResponses ?? DEFAULTS.streamResponses,
   };
 }
 
@@ -87,6 +88,8 @@ function freshState() {
     engineStats: null,
     lastVisual: null,
     lastRedactedImage: null,
+    streamPhase: null,
+    streamText: "",
     vaultCatalog: [],
     privacy: { gateFixes: 0, boxesPainted: 0, tokens: 0, bytesSent: 0 },
   };
@@ -608,6 +611,72 @@ function mockStep(sub, reqBody, snapshot) {
   };
 }
 
+// Reads an SSE stream from /agent/step/stream, updating sub.streamPhase/sub.streamText
+// as "status"/"delta" events arrive (so the popup can show live progress instead of a
+// blank REASONING wait), and resolves with the "result" event's payload — which is the
+// exact same JSON shape callServer()'s plain-fetch path returns, so nothing downstream
+// (runSubLoop's resp.status handling) needs to know which path was used.
+async function callServerStream(sub, ctx, payload, streamUrl) {
+  // Only the initial connect (getting headers/first bytes) is bounded by
+  // iterationTimeoutMs; a slow provider streams progress well before that anyway, and
+  // the read loop below isn't cut off mid-stream by the same short timeout.
+  const res = await withTimeout(
+    fetch(streamUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      body: payload,
+    }),
+    DEFAULTS.iterationTimeoutMs,
+    "server-stream-connect",
+  );
+  if (!res.ok || !res.body) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} ${body.slice(0, 200)}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let result = null;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) !== -1) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const evMatch = raw.match(/^event:\s*(.+)$/m);
+        const dataMatch = raw.match(/^data:\s*(.+)$/m);
+        if (!dataMatch) continue;
+        const event = evMatch ? evMatch[1].trim() : "message";
+        let data;
+        try {
+          data = JSON.parse(dataMatch[1]);
+        } catch (e) {
+          continue; // malformed SSE frame — skip it, don't abort the whole stream
+        }
+        if (event === "status") {
+          sub.streamPhase = data.phase || null;
+          await ctx.onUpdate();
+        } else if (event === "delta") {
+          sub.streamText = `${sub.streamText || ""}${data.text || ""}`.slice(-2000);
+          await ctx.onUpdate();
+        } else if (event === "result") {
+          result = data;
+        } else if (event === "error") {
+          throw new Error(data.message || "stream error");
+        }
+      }
+    }
+  } finally {
+    sub.streamPhase = null;
+    sub.streamText = "";
+  }
+  if (!result) throw new Error("stream ended without a result event");
+  return result;
+}
+
 async function callServer(sub, ctx, reqBody, snapshot) {
   if (ctx.localOnly) return mockStep(sub, reqBody, snapshot);
   // fail-closed egress gate: last check of every outgoing string before the network
@@ -618,6 +687,15 @@ async function callServer(sub, ctx, reqBody, snapshot) {
   }
   const payload = JSON.stringify(gated.body);
   STATE.privacy.bytesSent += payload.length;
+  if (STATE.settings?.streamResponses) {
+    const streamUrl = ctx.serverUrl.replace(/\/agent\/step\/?$/, "/agent/step/stream");
+    try {
+      return await callServerStream(sub, ctx, payload, streamUrl);
+    } catch (e) {
+      subLog(sub, `streaming call failed (${e.message}); falling back to a plain request`, "warn");
+      // fall through to the non-streaming request below — same gated payload, no re-gating
+    }
+  }
   try {
     const res = await withTimeout(
       fetch(ctx.serverUrl, {
@@ -657,6 +735,8 @@ function mirrorSubToState(sub) {
   STATE.lastScreenState = sub.lastScreenState;
   STATE.lastVisual = sub.lastVisual ?? null;
   STATE.lastRedactedImage = sub.lastRedactedImage ?? null;
+  STATE.streamPhase = sub.streamPhase ?? null;
+  STATE.streamText = sub.streamText ?? "";
   STATE.metrics = sub.metrics;
   STATE.tabId = sub.tabId;
 }
@@ -1215,6 +1295,8 @@ async function runSingleAgent(tab) {
     lastVisionMode: null,
     lastScreenState: null,
     lastThumbnail: null,
+    streamPhase: null,
+    streamText: "",
     narration: [],
     notes: [],
     savedImages: [],
@@ -1283,6 +1365,8 @@ async function runMultiAgent(tab) {
       lastVisionMode: null,
       lastScreenState: null,
       lastThumbnail: null,
+      streamPhase: null,
+      streamText: "",
       narration: [],
       notes: [],
       savedImages: [],
