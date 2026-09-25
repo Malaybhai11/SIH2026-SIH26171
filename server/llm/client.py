@@ -72,6 +72,11 @@ _VLM_IMAGES = os.environ.get("VLM_IMAGES", "1").lower() not in {"0", "false", "n
 # (Inception, Anthropic) should still fail fast at 60s if something's wrong.
 _VLM_TIMEOUT_S = float(os.environ.get("VLM_TIMEOUT_S", "180"))
 
+# Default timeout for hosted providers (Inception, Anthropic) and the fallback for
+# _chat_json_stream's correction retry. The VLM provider overrides this per-call
+# with _VLM_TIMEOUT_S above, since a CPU-only local model needs much longer.
+_CHAT_TIMEOUT_S = float(os.environ.get("LLM_TIMEOUT_S", "60"))
+
 _ACTION_KEYS = ("type", "targetId", "url", "amount", "text", "ms", "index", "value", "checked", "key", "fields")
 _ACTION_TYPES = {
     "click", "scroll", "type", "wait", "extract", "navigate", "open_tab", "switch_tab", "back",
@@ -166,6 +171,87 @@ def _chat_json(base: str, key: str, model: str, system: str, user_text: str, sch
     raise ValueError(f"{model} output failed validation: {last_err}")
 
 
+def _read_sse_deltas(r):
+    """Reads an OpenAI-compatible chat-completions SSE stream (an open httpx streaming
+    Response), yielding ('delta', text) for each content fragment as it arrives.
+    Returns the full accumulated content via the generator's return value."""
+    acc = ""
+    for line in r.iter_lines():
+        if not line or not line.startswith("data:"):
+            continue
+        payload = line[len("data:"):].strip()
+        if payload == "[DONE]":
+            break
+        try:
+            chunk = json.loads(payload)
+        except Exception:
+            continue  # a stray keep-alive/comment line — ignore, not fatal
+        delta = ((chunk.get("choices") or [{}])[0].get("delta") or {}).get("content")
+        if delta:
+            acc += delta
+            yield ("delta", delta)
+    return acc
+
+
+def _chat_json_stream(base: str, key: str, model: str, system: str, user_text: str, schema_name: str,
+                      schema: dict, validate, image_b64: str | None = None, timeout_s: float = _CHAT_TIMEOUT_S):
+    """Streaming counterpart to _chat_json. Yields ('delta', text) as content tokens
+    arrive over SSE, then exactly one of ('done', data) / ('error', message).
+
+    Malformed/invalid streamed output gets ONE non-streaming retry-with-correction
+    (via _chat_json) rather than re-streaming the correction turn — that turn is short
+    and doesn't need progressive UI feedback, and it reuses _chat_json's existing
+    format-degradation logic (json_schema -> json_object -> plain)."""
+    import httpx
+
+    user_content: Any = user_text
+    if image_b64:
+        user_content = [
+            {"type": "text", "text": user_text},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+        ]
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user_content}]
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    body: dict[str, Any] = {
+        "model": model,
+        "temperature": 0,
+        "messages": messages,
+        "stream": True,
+        "response_format": {"type": "json_schema", "json_schema": {"name": schema_name, "strict": False, "schema": schema}},
+    }
+
+    content_acc = ""
+    try:
+        with httpx.Client(timeout=timeout_s) as http:
+            with http.stream("POST", f"{base}/chat/completions", headers=headers, json=body) as r:
+                if r.status_code == 400:
+                    # server doesn't support response_format + stream together — degrade
+                    # to plain streaming (still gets us progressive text) and rely on
+                    # _extract_json's prose/fence handling for the final parse.
+                    r.close()
+                    body.pop("response_format", None)
+                    with http.stream("POST", f"{base}/chat/completions", headers=headers, json=body) as r2:
+                        r2.raise_for_status()
+                        content_acc = yield from _read_sse_deltas(r2)
+                else:
+                    r.raise_for_status()
+                    content_acc = yield from _read_sse_deltas(r)
+    except Exception as e:
+        yield ("error", f"stream request failed: {e}")
+        return
+
+    try:
+        data = _extract_json(content_acc)
+        validate(data)
+        yield ("done", data)
+    except Exception as e:
+        try:
+            data = _chat_json(base, key, model, system, user_text, schema_name, schema, validate, image_b64=image_b64, timeout_s=timeout_s)
+            yield ("done", data)
+        except Exception as e2:
+            yield ("error", f"output failed validation after correction retry: {e2}")
+
+
 # --------------------------------------------------------------------------- shared
 def _normalize_action(a: dict | None) -> dict | None:
     if not a:
@@ -175,6 +261,52 @@ def _normalize_action(a: dict | None) -> dict | None:
 
 def _blank_item(d: dict) -> dict:
     return {k: d.get(k) for k in ("author", "text", "timestamp", "href")}
+
+
+_ITEM_STR_FIELDS = ("author", "text", "timestamp", "href")
+_ITEM_MAX_STR_LEN = 500
+_ITEM_MAX_COUNT = 200
+_ITEM_MAX_FIELDS = 20
+
+
+def sanitize_items(raw: Any) -> list[dict]:
+    """Normalizes a collection-item list (LLM 'extracted'/'extractedItems' output, or
+    client-supplied 'extractedItems' on /agent/synthesize) into a bounded, typed shape.
+    This is real server-side validation, not just schema-constrained generation: a
+    provider's JSON mode is a strong hint, not a guarantee, and /agent/synthesize's
+    items come straight from the client. Malformed entries (wrong type, oversized
+    strings/objects, non-scalar field values) are repaired or dropped rather than
+    propagated or allowed to 500 the request."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for entry in raw[:_ITEM_MAX_COUNT]:
+        if not isinstance(entry, dict):
+            continue  # e.g. a bare string/number the model emitted instead of an object
+        item: dict[str, Any] = {}
+        for k in _ITEM_STR_FIELDS:
+            v = entry.get(k)
+            if v is None:
+                continue
+            if not isinstance(v, str):
+                v = str(v)
+            item[k] = v[:_ITEM_MAX_STR_LEN]
+        fields = entry.get("fields")
+        if isinstance(fields, dict):
+            clean: dict[str, Any] = {}
+            for k, v in list(fields.items())[:_ITEM_MAX_FIELDS]:
+                if not isinstance(k, str) or not k:
+                    continue
+                if isinstance(v, str):
+                    v = v[:_ITEM_MAX_STR_LEN]
+                elif not isinstance(v, (int, float, bool)) and v is not None:
+                    v = str(v)[:_ITEM_MAX_STR_LEN]  # e.g. a nested list/object — flatten to text
+                clean[k[:80]] = v
+            if clean:
+                item["fields"] = clean
+        if item:
+            out.append(item)
+    return out
 
 
 def _validate(data: Any) -> None:
@@ -217,8 +349,8 @@ def _validate(data: Any) -> None:
 
 def _finalize(data: dict) -> dict:
     data["action"] = _normalize_action(data.get("action"))
-    data.setdefault("extracted", [])
-    data.setdefault("extractedItems", [])
+    data["extracted"] = sanitize_items(data.get("extracted") or [])
+    data["extractedItems"] = sanitize_items(data.get("extractedItems") or [])
     data.setdefault("reasoning", "")
     return data
 
@@ -287,12 +419,23 @@ def _inception_step(req: dict) -> dict:
     return _finalize(data)
 
 
+def _inception_step_stream(req: dict):
+    yield from _chat_json_stream(_INCEPTION_BASE, _INCEPTION_KEY, _INCEPTION_MODEL, SYSTEM, build_user_message(req),
+                                 "agent_step", _SCHEMA, _validate)
+
+
 # ---------------------------------------------------------------- open-weights VLM
 def _vlm_step(req: dict) -> dict:
     image = req.get("redactedScreenshot") if (_VLM_IMAGES and req.get("sendScreenshot")) else None
     data = _chat_json(_VLM_BASE, _VLM_KEY, _VLM_MODEL, SYSTEM, build_user_message(req, has_image=bool(image)),
                       "agent_step", _SCHEMA, _validate, image_b64=image, timeout_s=_VLM_TIMEOUT_S)
     return _finalize(data)
+
+
+def _vlm_step_stream(req: dict):
+    image = req.get("redactedScreenshot") if (_VLM_IMAGES and req.get("sendScreenshot")) else None
+    yield from _chat_json_stream(_VLM_BASE, _VLM_KEY, _VLM_MODEL, SYSTEM, build_user_message(req, has_image=bool(image)),
+                                 "agent_step", _SCHEMA, _validate, image_b64=image, timeout_s=_VLM_TIMEOUT_S)
 
 
 # ---------------------------------------------------------------------- anthropic
@@ -325,8 +468,33 @@ def _anthropic_step(req: dict) -> dict:
     raise ValueError(f"LLM output failed validation twice: {last_err}")
 
 
+def _anthropic_step_stream(req: dict):
+    import anthropic
+
+    client = anthropic.Anthropic()
+    user_msg = build_user_message(req)
+    try:
+        with client.messages.stream(
+            model=_ANTHROPIC_MODEL,
+            max_tokens=4000,
+            system=SYSTEM,
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": _SCHEMA}},
+            messages=[{"role": "user", "content": user_msg}],
+        ) as stream:
+            for text in stream.text_stream:
+                yield ("delta", text)
+            final = stream.get_final_message()
+        raw = next(b.text for b in final.content if b.type == "text")
+        data = json.loads(raw)
+        _validate(data)
+        yield ("done", data)
+    except Exception as e:
+        yield ("error", str(e))
+
+
 # ------------------------------------------------------------------------- public
 _STEP_FNS = {"vlm": _vlm_step, "inception": _inception_step, "anthropic": _anthropic_step, "mock": mock_step}
+_STEP_STREAM_FNS = {"vlm": _vlm_step_stream, "inception": _inception_step_stream, "anthropic": _anthropic_step_stream}
 
 
 def decide_step(req: dict) -> tuple[dict, str]:
@@ -340,6 +508,48 @@ def decide_step(req: dict) -> tuple[dict, str]:
         msg = str(e)
         code = "llm_malformed" if "validation" in msg or "schema" in msg else "llm_unavailable"
         return {"status": "error", "code": code, "message": msg[:300]}, "error"
+
+
+def stream_step(req: dict):
+    """Streaming counterpart to decide_step. Yields (kind, payload) tuples:
+      - ('status', {...})       phase markers, at least one 'waiting_for_model' first
+      - ('delta', str)          a fragment of the model's raw output, as it arrives
+      - ('done', dict)          the same shape decide_step returns on success (finalized)
+      - ('error', str)          a message; the caller shapes it into the same
+                                 {"status":"error", code, message} contract decide_step
+                                 produces, so a streamed and non-streamed call always end
+                                 up looking identical to downstream consumers.
+    Always ends in exactly one 'done' or 'error'."""
+    provider = resolve_provider()
+    yield ("status", {"phase": "waiting_for_model", "provider": provider, "engine": "mock" if provider == "mock" else engine_label()})
+    if provider == "mock":
+        # No network round-trip to narrate, but keep the same event shape so the
+        # extension's stream consumer is exercised even fully offline (MOCK_LLM=1).
+        data = mock_step(req)
+        if data.get("reasoning"):
+            yield ("delta", data["reasoning"])
+        yield ("done", data)
+        return
+    stream_fn = _STEP_STREAM_FNS.get(provider)
+    if not stream_fn:
+        yield ("error", f"provider '{provider}' has no streaming support")
+        return
+    try:
+        final = None
+        for kind, payload in stream_fn(req):
+            if kind == "delta":
+                yield ("delta", payload)
+            elif kind == "error":
+                yield ("error", payload)
+                return
+            elif kind == "done":
+                final = payload
+        if final is None:
+            yield ("error", "stream ended with no result")
+        else:
+            yield ("done", _finalize(final))
+    except Exception as e:
+        yield ("error", str(e))
 
 
 # --------------------------------------------------------------------------- planning
@@ -424,14 +634,25 @@ def _validate_synthesize(data: Any) -> None:
         raise ValueError("synthesize needs answer")
 
 
+def _item_line(it: dict) -> str:
+    label = it.get("author") or it.get("text") or ""
+    bits = [str(v) for v in (it.get("fields") or {}).values() if v not in (None, "")]
+    return " — ".join(p for p in (label, ", ".join(bits)) if p)
+
+
 def _local_concat(req: dict) -> str:
     # Mirrors extension/background.js's localSynthesize fallback so mock mode is
-    # consistent whichever side does it.
+    # consistent whichever side does it. Falling back to text concatenation used to
+    # silently drop structured extractedItems when a sub-agent had no prose answer
+    # (e.g. a pure collection task) — list them explicitly instead.
     parts = []
     for r in req.get("subAgentResults") or []:
         goal = r.get("goal", "")
         answer = r.get("answer") or f"(failed: {r.get('error') or 'unknown error'})"
         parts.append(f"## {goal}\n{answer}\n")
+        lines = [f"- {_item_line(it)}" for it in sanitize_items(r.get("extractedItems") or [])[:20] if _item_line(it)]
+        if lines:
+            parts.append("\n".join(lines) + "\n")
     return "\n".join(parts)
 
 

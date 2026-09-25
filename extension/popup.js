@@ -66,6 +66,7 @@ const els = {
   perceptionMode: $("perceptionMode"),
   sendScreenshot: $("sendScreenshot"),
   humanize: $("humanize"),
+  streamResponses: $("streamResponses"),
   tabMetrics: $("tabMetrics"),
   tabLog: $("tabLog"),
   tabSettings: $("tabSettings"),
@@ -272,6 +273,16 @@ function render(state) {
 
   els.status.textContent = state.status + (state.iteration ? ` ${state.iteration}/${state.maxIterations}` : "");
   els.status.className = "badge " + (BADGE_CLASS[state.status] ?? "");
+
+  // Live streaming progress (only populated when the "Stream responses" setting is on
+  // and /agent/step/stream is in use) — replaces the blank REASONING wait with
+  // "waiting for model..." then the model's partial reasoning text as it arrives.
+  const streaming = state.status === STATUS.REASONING && (state.streamPhase || state.streamText);
+  const streamLabel = streaming
+    ? state.streamText
+      ? truncate(state.streamText, 160)
+      : humanizeStreamPhase(state.streamPhase)
+    : "";
   els.run.disabled = running;
   els.cancel.disabled = !running;
 
@@ -308,14 +319,16 @@ function render(state) {
 
   updateChipsVisibility();
 
-  els.collected.textContent = state.accumulatedData?.length
-    ? `${state.accumulatedData.length} item(s) collected` +
-      (state.lastVisionMode ? ` · vision: ${state.lastVisionMode}` : "") +
-      (state.lastScreenState ? ` · screen: ${state.lastScreenState}` : "") +
-      (state.localOnly ? " · LOCAL-ONLY" : "")
-    : state.lastVisionMode
-      ? `vision: ${state.lastVisionMode}${state.localOnly ? " · LOCAL-ONLY" : ""}`
-      : "";
+  els.collected.textContent = streaming
+    ? streamLabel
+    : state.accumulatedData?.length
+      ? `${state.accumulatedData.length} item(s) collected` +
+        (state.lastVisionMode ? ` · vision: ${state.lastVisionMode}` : "") +
+        (state.lastScreenState ? ` · screen: ${state.lastScreenState}` : "") +
+        (state.localOnly ? " · LOCAL-ONLY" : "")
+      : state.lastVisionMode
+        ? `vision: ${state.lastVisionMode}${state.localOnly ? " · LOCAL-ONLY" : ""}`
+        : "";
 
   // Plan tab — only shown for genuinely multi-part tasks (>1 subtask); simple
   // tasks look identical to before this feature existed.
@@ -528,14 +541,20 @@ async function loadSettingsUi() {
   els.perceptionMode.value = s.perceptionMode || detectDeviceTier();
   if (s.sendScreenshot !== undefined) els.sendScreenshot.checked = !!s.sendScreenshot;
   if (s.humanize !== undefined) els.humanize.checked = !!s.humanize;
+  if (s.streamResponses !== undefined) els.streamResponses.checked = !!s.streamResponses;
 }
 function saveSettingsUi() {
   chrome.runtime.sendMessage({
     type: MSG.SAVE_SETTINGS,
-    payload: { perceptionMode: els.perceptionMode.value, sendScreenshot: els.sendScreenshot.checked, humanize: els.humanize.checked },
+    payload: {
+      perceptionMode: els.perceptionMode.value,
+      sendScreenshot: els.sendScreenshot.checked,
+      humanize: els.humanize.checked,
+      streamResponses: els.streamResponses.checked,
+    },
   });
 }
-for (const el of [els.perceptionMode, els.sendScreenshot, els.humanize]) el.addEventListener("change", saveSettingsUi);
+for (const el of [els.perceptionMode, els.sendScreenshot, els.humanize, els.streamResponses]) el.addEventListener("change", saveSettingsUi);
 loadSettingsUi();
 // load the models while the user types (hides first-step model load latency)
 chrome.runtime.sendMessage({ type: MSG.WARMUP }).catch(() => {});
@@ -658,6 +677,10 @@ function escapeHtml(s) {
 function truncate(s, n) {
   s = String(s ?? "");
   return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+function humanizeStreamPhase(phase) {
+  return { received: "sending request...", waiting_for_model: "waiting for model..." }[phase] || phase || "";
 }
 
 els.run.addEventListener("click", () => {

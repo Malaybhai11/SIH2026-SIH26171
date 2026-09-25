@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from server.llm.client import decide_synthesize, mock_synthesize
+from server.llm.client import decide_synthesize, mock_synthesize, sanitize_items
 
 router = APIRouter()
 
@@ -29,6 +29,11 @@ class SynthesizeRequest(BaseModel):
 def agent_synthesize(req: SynthesizeRequest) -> dict:
     t0 = time.perf_counter()
     payload = req.model_dump()
+    # subAgentResults[].extractedItems comes straight from the client (each sub-agent's
+    # accumulated data), not from an LLM — sanitize it the same way agent_step does its
+    # own LLM output, so a malformed/oversized item can't reach the synthesis prompt.
+    for r in payload.get("subAgentResults") or []:
+        r["extractedItems"] = sanitize_items(r.get("extractedItems") or [])
 
     decision, engine = decide_synthesize(payload)
 
