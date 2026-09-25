@@ -1,26 +1,26 @@
 {
   "task": "checkout",
   "prompt": "What is my order total and where is it being delivered?",
-  "status": "DONE",
-  "answer": "Your order total is ₹2,347 and it will be delivered to Rohan Mehta · House No. 12, Sector 15, Rohini, Delhi 110085 · Phone: +91 98111 22334.",
+  "status": "AWAITING_CONFIRMATION",
+  "answer": null,
   "error": null,
-  "passed": true,
+  "passed": false,
   "outcome": null,
-  "wallMs": 7388,
+  "wallMs": 240018,
   "steps": [
     {
       "iteration": 1,
-      "domMs": 41,
-      "textPiiMs": 2254,
-      "tokenizeMs": 103,
-      "visionMs": 1524,
-      "facesMs": 278,
-      "clipMs": 901,
-      "paintMs": 103,
-      "perceptionMs": 4964,
+      "domMs": 8,
+      "textPiiMs": 409,
+      "tokenizeMs": 83,
+      "visionMs": 1218,
+      "facesMs": 261,
+      "clipMs": 918,
+      "paintMs": 83,
+      "perceptionMs": 1928,
       "cacheHit": false,
-      "serverMs": 1427,
-      "totalMs": 6523
+      "serverMs": 5210,
+      "totalMs": 7177
     }
   ],
   "serverSaw": {
@@ -47,19 +47,19 @@
       "screen": {
         "state": "checkout_payment",
         "category": "form",
-        "confidence": 0.945,
+        "confidence": 0.973,
         "probs": [
           {
             "id": "checkout_payment",
-            "p": 0.945
+            "p": 0.973
           },
           {
             "id": "signup_form",
-            "p": 0.022
+            "p": 0.016
           },
           {
-            "id": "kyc_identity",
-            "p": 0.008
+            "id": "banking",
+            "p": 0.004
           }
         ],
         "pixelsOnly": "checkout_payment",
@@ -73,7 +73,8 @@
         "text": 4,
         "fields": 4,
         "faces": 0,
-        "regions": 0
+        "regions": 0,
+        "ocr": 0
       }
     }
   },
@@ -86,47 +87,48 @@
     "gateFixes": 0,
     "boxesPainted": 8,
     "tokens": 4,
-    "bytesSent": 59042
+    "bytesSent": 62193,
+    "tokenReleaseBlocks": 1
   },
   "engine": {
     "ep": "wasm",
     "models": {
       "face": {
         "bytes": 232589,
-        "loadMs": 2615,
+        "loadMs": 647,
         "ep": "wasm"
       },
       "clip": {
         "bytes": 22876479,
-        "loadMs": 2614,
+        "loadMs": 975,
         "ep": "wasm"
       },
       "ner": {
         "bytes": 28748527,
-        "loadMs": 3138,
+        "loadMs": 1121,
         "ep": "wasm"
       }
     },
     "calls": {
       "ner": {
         "n": 5,
-        "totalMs": 3467.4899999648333,
-        "lastMs": 41
+        "totalMs": 1796.720000000205,
+        "lastMs": 8
       },
       "faces": {
         "n": 1,
-        "totalMs": 276.82999999821186,
-        "lastMs": 277
+        "totalMs": 260.7050000000745,
+        "lastMs": 261
       },
       "clip": {
         "n": 1,
-        "totalMs": 901.4599999934435,
-        "lastMs": 901
+        "totalMs": 917.5699999998324,
+        "lastMs": 918
       },
       "redact": {
         "n": 1,
-        "totalMs": 85.36499999463558,
-        "lastMs": 85
+        "totalMs": 58.60000000009313,
+        "lastMs": 59
       }
     },
     "cache": {
@@ -139,15 +141,15 @@
     "lastClipBatch": 1,
     "modelMB": 51.9,
     "memory": {
-      "jsHeapUsedMB": 45.8,
-      "jsHeapTotalMB": 49.6
+      "jsHeapUsedMB": 22.4,
+      "jsHeapTotalMB": 28
     }
   },
   "log": [
     "task \"What is my order total and where is it being delivered?\" on http://localhost:8000/demo/checkout.html (target=n/a, localOnly=false, multiAgent=false)",
     "plan: 1 subtask(s) — single-agent mode",
     "--- iteration 1/12 ---",
-    "redacted 4 text span(s); painted 8 box(es) [text 4, fields 4, faces 0, images 0]; screen=checkout_payment (0.945); ep=wasm; perception 4964ms",
-    "done: Extracted total and delivery address from the checkout page snapshot."
+    "redacted 4 text span(s); painted 8 box(es) [text 4, fields 4, faces 0, images 0]; screen=checkout_payment (0.973); ep=wasm; perception 1928ms",
+    "awaiting confirmation (token_release): release NAME (NAME token does not belong in a \"phone\" field) via type"
   ]
 }

@@ -1,100 +1,30 @@
 {
   "task": "kyc",
   "prompt": "Update my KYC: set occupation to Salaried and annual income to 10–25 lakh, then submit.",
-  "status": "DONE",
-  "answer": "KYC has been updated: occupation set to Salaried and annual income set to 10–25 lakh, and the form was submitted successfully.",
-  "error": null,
-  "passed": true,
+  "status": "ERROR",
+  "answer": null,
+  "error": "server: llm_unavailable — timed out",
+  "passed": false,
   "outcome": {
-    "occ": "Salaried",
-    "inc": "10–25 lakh",
-    "done": true
+    "occ": "",
+    "inc": "",
+    "done": false
   },
-  "wallMs": 21840,
+  "wallMs": 64107,
   "steps": [
     {
       "iteration": 1,
-      "domMs": 52,
-      "textPiiMs": 707,
-      "tokenizeMs": 152,
-      "visionMs": 3846,
-      "facesMs": 625,
-      "clipMs": 3067,
-      "paintMs": 152,
-      "perceptionMs": 4992,
+      "domMs": 21,
+      "textPiiMs": 284,
+      "tokenizeMs": 53,
+      "visionMs": 1678,
+      "facesMs": 222,
+      "clipMs": 1410,
+      "paintMs": 53,
+      "perceptionMs": 2163,
       "cacheHit": false,
-      "serverMs": 2173,
-      "totalMs": 7269
-    },
-    {
-      "iteration": 2,
-      "domMs": 2,
-      "textPiiMs": 7,
-      "tokenizeMs": 41,
-      "visionMs": 45,
-      "facesMs": null,
-      "clipMs": null,
-      "paintMs": 41,
-      "perceptionMs": 210,
-      "cacheHit": true,
-      "serverMs": 2027,
-      "totalMs": 2294
-    },
-    {
-      "iteration": 3,
-      "domMs": 2,
-      "textPiiMs": 32,
-      "tokenizeMs": 122,
-      "visionMs": 185,
-      "facesMs": 145,
-      "clipMs": 1,
-      "paintMs": 122,
-      "perceptionMs": 523,
-      "cacheHit": false,
-      "serverMs": 1724,
-      "totalMs": 2373
-    },
-    {
-      "iteration": 4,
-      "domMs": 5,
-      "textPiiMs": 9,
-      "tokenizeMs": 38,
-      "visionMs": 37,
-      "facesMs": null,
-      "clipMs": null,
-      "paintMs": 38,
-      "perceptionMs": 200,
-      "cacheHit": true,
-      "serverMs": 2329,
-      "totalMs": 2584
-    },
-    {
-      "iteration": 5,
-      "domMs": 4,
-      "textPiiMs": 5,
-      "tokenizeMs": 120,
-      "visionMs": 161,
-      "facesMs": 126,
-      "clipMs": 1,
-      "paintMs": 120,
-      "perceptionMs": 384,
-      "cacheHit": false,
-      "serverMs": 2308,
-      "totalMs": 2757
-    },
-    {
-      "iteration": 6,
-      "domMs": 2,
-      "textPiiMs": 38,
-      "tokenizeMs": 40,
-      "visionMs": 38,
-      "facesMs": null,
-      "clipMs": null,
-      "paintMs": 40,
-      "perceptionMs": 249,
-      "cacheHit": true,
-      "serverMs": 1929,
-      "totalMs": 2234
+      "serverMs": 60128,
+      "totalMs": 62341
     }
   ],
   "serverSaw": {
@@ -131,36 +61,28 @@
       {
         "token": "[BANK_ACCOUNT_1]",
         "type": "BANK_ACCOUNT"
-      },
-      {
-        "token": "[PASSWORD_1]",
-        "type": "PASSWORD"
-      },
-      {
-        "token": "[OTP_1]",
-        "type": "OTP"
       }
     ],
     "visualContext": {
       "screen": {
         "state": "kyc_identity",
         "category": "form",
-        "confidence": 0.962,
+        "confidence": 0.491,
         "probs": [
           {
             "id": "kyc_identity",
-            "p": 0.962
+            "p": 0.491
           },
           {
             "id": "checkout_payment",
-            "p": 0.017
+            "p": 0.304
           },
           {
             "id": "signup_form",
-            "p": 0.014
+            "p": 0.162
           }
         ],
-        "pixelsOnly": "kyc_identity",
+        "pixelsOnly": "checkout_payment",
         "cues": [
           "signup_form",
           "kyc_identity",
@@ -186,8 +108,8 @@
       ],
       "facesRedacted": 2,
       "boxCounts": {
-        "text": 7,
-        "fields": 2,
+        "text": 8,
+        "fields": 0,
         "faces": 2,
         "regions": 3
       }
@@ -196,89 +118,75 @@
   "leakCheck": {
     "secretsChecked": 8,
     "leaked": [],
-    "requestsInspected": 6
+    "requestsInspected": 1
   },
   "privacy": {
     "gateFixes": 0,
-    "boxesPainted": 82,
-    "tokens": 10,
-    "bytesSent": 456666
+    "boxesPainted": 13,
+    "tokens": 8,
+    "bytesSent": 82821,
+    "tokenReleaseBlocks": 0
   },
   "engine": {
     "ep": "wasm",
     "models": {
       "face": {
         "bytes": 232589,
-        "loadMs": 2250,
+        "loadMs": 934,
         "ep": "wasm"
       },
       "clip": {
         "bytes": 22876479,
-        "loadMs": 2249,
+        "loadMs": 934,
         "ep": "wasm"
       },
       "ner": {
         "bytes": 28748527,
-        "loadMs": 2778,
+        "loadMs": 1195,
         "ep": "wasm"
       }
     },
     "calls": {
       "ner": {
-        "n": 11,
-        "totalMs": 1337.655000001192,
-        "lastMs": 23
+        "n": 5,
+        "totalMs": 1713.1299999998882,
+        "lastMs": 11
       },
       "faces": {
-        "n": 3,
-        "totalMs": 894.955000013113,
-        "lastMs": 126
+        "n": 1,
+        "totalMs": 222.18999999994412,
+        "lastMs": 222
       },
       "clip": {
         "n": 1,
-        "totalMs": 3066.560000002384,
-        "lastMs": 3067
+        "totalMs": 1409.6800000001676,
+        "lastMs": 1410
       },
       "redact": {
-        "n": 6,
-        "totalMs": 453.1650000065565,
-        "lastMs": 33
+        "n": 1,
+        "totalMs": 40.580000000074506,
+        "lastMs": 41
       }
     },
     "cache": {
-      "frame": 3,
-      "region": 4,
-      "ner": 292
+      "frame": 0,
+      "region": 0,
+      "ner": 27
     },
     "threads": 4,
     "lastNerStrings": 1,
-    "lastClipBatch": 0,
+    "lastClipBatch": 3,
     "modelMB": 51.9,
     "memory": {
-      "jsHeapUsedMB": 20.6,
-      "jsHeapTotalMB": 27.5
+      "jsHeapUsedMB": 6.8,
+      "jsHeapTotalMB": 7
     }
   },
   "log": [
     "task \"Update my KYC: set occupation to Salaried and annual income to 10–25 lakh, then submit.\" on http://localhost:8000/demo/kyc.html (target=n/a, localOnly=false, multiAgent=false)",
     "plan: 1 subtask(s) — single-agent mode",
     "--- iteration 1/12 ---",
-    "redacted 8 text span(s); painted 13 box(es) [text 8, fields 0, faces 2, images 3]; screen=kyc_identity (0.962); ep=wasm; perception 4992ms",
-    "server → select n_0008 (Select the occupation combobox to 'Salaried' before proceeding.)",
-    "--- iteration 2/12 ---",
-    "redacted 8 text span(s); painted 13 box(es) [text 8, fields 0, faces 2, images 3]; screen=kyc_identity (0.962); ep=wasm (frame cache hit); perception 210ms",
-    "server → scroll 200px (Scroll down to reveal the submit button and the annual income field for further interaction.)",
-    "--- iteration 3/12 ---",
-    "redacted 7 text span(s); painted 14 box(es) [text 7, fields 2, faces 2, images 3]; screen=kyc_identity (0.962); ep=wasm; perception 523ms",
-    "server → select n_0009 (Select the annual income option '10–25 lakh' in the KYC form before submitting.)",
-    "--- iteration 4/12 ---",
-    "redacted 7 text span(s); painted 14 box(es) [text 7, fields 2, faces 2, images 3]; screen=kyc_identity (0.962); ep=wasm (frame cache hit); perception 200ms",
-    "server → fill_form  (The occupation and annual income fields are already set correctly; need to provide transaction password and OTP before submitting.)",
-    "--- iteration 5/12 ---",
-    "redacted 7 text span(s); painted 14 box(es) [text 7, fields 2, faces 2, images 3]; screen=kyc_identity (0.962); ep=wasm; perception 384ms",
-    "server → click n_0034 (Occupation and income already set, proceed to submit the KYC form.)",
-    "--- iteration 6/12 ---",
-    "redacted 7 text span(s); painted 14 box(es) [text 7, fields 2, faces 2, images 3]; screen=kyc_identity (0.962); ep=wasm (frame cache hit); perception 249ms",
-    "done: The form fields already contain the desired values and the submit button was clicked, resulting in a success toast."
+    "redacted 8 text span(s); painted 13 box(es) [text 8, fields 0, faces 2, images 3]; screen=kyc_identity (0.491); ep=wasm; perception 2163ms",
+    "server: llm_unavailable — timed out"
   ]
 }
