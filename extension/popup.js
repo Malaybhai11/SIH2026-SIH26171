@@ -275,7 +275,11 @@ function render(state) {
   const awaitingConfirm = state.status === STATUS.AWAITING_CONFIRMATION && !!state.pendingConfirmation;
   els.confirmBanner.hidden = !awaitingConfirm;
   if (awaitingConfirm) {
-    els.confirmText.textContent = state.pendingConfirmation.description || "Confirm this action?";
+    const isTokenRelease = state.pendingConfirmation.kind === "token_release";
+    els.confirmBanner.classList.toggle("token-release", isTokenRelease);
+    els.confirmText.textContent = isTokenRelease
+      ? `Privacy guard — ${state.pendingConfirmation.description || "blocked a value release"}`
+      : state.pendingConfirmation.description || "Confirm this action?";
   }
 
   if (state.status === STATUS.ERROR) {
@@ -429,6 +433,7 @@ function render(state) {
         <span>JS heap (engine)</span><b>${eng.memory ? `${eng.memory.jsHeapUsedMB} MB` : "n/a"}</b>
         <span>cache hits</span><b>frame ${eng.cache?.frame ?? 0} · regions ${eng.cache?.region ?? 0} · NER ${eng.cache?.ner ?? 0}</b>
         <span>privacy</span><b>${state.privacy?.boxesPainted ?? 0} boxes painted · ${state.privacy?.tokens ?? 0} tokens · gate fixes ${state.privacy?.gateFixes ?? 0} · ${Math.round((state.privacy?.bytesSent ?? 0) / 1024)} KB sent</b>
+        <span>token release blocks</span><b>${state.privacy?.tokenReleaseBlocks ?? 0}</b>
       </div>`
     : "";
   if (iters.length) {

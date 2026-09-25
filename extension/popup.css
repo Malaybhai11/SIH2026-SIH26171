@@ -391,6 +391,15 @@ table.metrics td:first-child {
   color: var(--warn);
   font-weight: 600;
 }
+/* B1 token release policy — a blocked PII release is a security event, not just a
+   heads-up, so it gets its own (danger, not warning) color. */
+.confirm-banner.token-release {
+  background: color-mix(in srgb, var(--err) 15%, transparent);
+  border-color: var(--err);
+}
+.confirm-banner.token-release .small {
+  color: var(--err);
+}
 .pause-banner {
   background: var(--badge-run-bg);
   border: 1px solid var(--accent);
