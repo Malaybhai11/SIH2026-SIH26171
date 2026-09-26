@@ -196,11 +196,47 @@ export function egressGate(body, vault) {
   };
   return { body: walk(body, ""), fixes, where };
 }
-
 /** Swap tokens in an action for real values, locally, just before execution. */
+
 export function rehydrateAction(action, vault) {
   const a = { ...action };
-  for (const k of ["text", "value", "url"]) if (typeof a[k] === "string") a[k] = vault.resolve(a[k]);
-  if (Array.isArray(a.fields)) a.fields = a.fields.map((f) => ({ ...f, text: vault.resolve(f.text ?? "") }));
+
+  const extractTokens = (str) => {
+    if (typeof str !== "string") return [];
+    return [...str.matchAll(/\[([A-Z_]+)_\d+\]/g)].map((m) => m[1].replace(/_\d+$/, ""));
+  };
+
+  const actionTokens = new Set();
+  for (const key of ["text", "value", "url"]) {
+    if (typeof a[key] === "string") {
+      for (const t of extractTokens(a[key])) actionTokens.add(t);
+    }
+  }
+
+  a.__sensitiveTypes = [...actionTokens];
+  a.__b1TokenTypes = [...actionTokens];
+
+  // Check fill_form fields individually
+  if (Array.isArray(a.fields)) {
+    a.fields = a.fields.map((f) => {
+      const fieldTokens = extractTokens(f.text);
+      for (const t of fieldTokens) actionTokens.add(t);
+      return {
+        ...f,
+        __sensitiveTypes: fieldTokens,
+        text: vault.resolve(f.text ?? ""),
+      };
+    });
+    a.__sensitiveTypes = [...actionTokens];
+    a.__b1TokenTypes = [...actionTokens];
+  }
+
+  // Release the real value only after token detection
+  for (const k of ["text", "value", "url"]) {
+    if (typeof a[k] === "string") {
+      a[k] = vault.resolve(a[k]);
+    }
+  }
+
   return a;
 }

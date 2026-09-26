@@ -27,6 +27,7 @@ import {
   humanCheck,
 } from "./lib/humanBehavior.js";
 import { fastDelay, fastClick, fastType, fastScroll, fastHover, fastPressKey, fastSelect, fastCheck } from "./lib/fastActions.js";
+import { isSensitiveDataAllowed, detectSensitiveDataTypes } from "./lib/fieldCompatibility.js";
 
 const HUMAN = { delay: humanDelay, click: humanClick, type: humanType, scroll: (a, o) => humanScroll(a, o), hover: humanHover, pressKey: humanPressKey, select: humanSelect, check: humanCheck };
 const FAST = { delay: fastDelay, click: fastClick, type: fastType, scroll: (a) => fastScroll(a), hover: fastHover, pressKey: fastPressKey, select: fastSelect, check: fastCheck };
@@ -175,7 +176,6 @@ function isTypeableElement(el) {
   if (el.tagName === "INPUT") return !NON_TEXT_INPUT_TYPES.has((el.type || "text").toLowerCase());
   return !!el.isContentEditable;
 }
-
 async function handleAction({ action, humanize = false }) {
   const A = humanize ? HUMAN : FAST;
   try {
@@ -201,6 +201,16 @@ async function handleAction({ action, humanize = false }) {
           return {
             ok: false,
             error: `element ${action.targetId} does not accept typed text (${el.tagName.toLowerCase()}${el.type ? `[type=${el.type}]` : ""}) — pick a different target`,
+          };
+        }
+        const sensitiveTypes = detectSensitiveDataTypes(action.text ?? "", action.__sensitiveTypes || action.__b1TokenTypes);
+        const check = isSensitiveDataAllowed(sensitiveTypes, el);
+        if (!check.allowed) {
+          return {
+            ok: false,
+            error: check.reason || "Privacy protection: This information cannot be inserted because the selected field does not appear to request this type of data.",
+            privacyBlocked: true,
+            blockedType: check.blockedType,
           };
         }
         await A.type(el, action.text ?? "");
@@ -257,6 +267,18 @@ async function handleAction({ action, humanize = false }) {
           }
           if (!isTypeableElement(el)) {
             results.push({ targetId: f.targetId, ok: false, error: "does not accept typed text" });
+            continue;
+          }
+          const sensitiveTypes = detectSensitiveDataTypes(f.text ?? "", f.__sensitiveTypes || action.__sensitiveTypes);
+          const check = isSensitiveDataAllowed(sensitiveTypes, el);
+          if (!check.allowed) {
+            results.push({
+              targetId: f.targetId,
+              ok: false,
+              error: check.reason || "Privacy protection: This information cannot be inserted because the selected field does not appear to request this type of data.",
+              privacyBlocked: true,
+              blockedType: check.blockedType,
+            });
             continue;
           }
           try {
