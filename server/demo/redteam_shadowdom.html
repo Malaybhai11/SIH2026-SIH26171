@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Account widget — NimbusBank</title><link rel="stylesheet" href="demo.css"></head>
+<body><header class="top"><b>🏦 NimbusBank</b></header>
+<main>
+<div class="card">
+  <h2 style="margin-top:0">Account widget</h2>
+  <p class="muted">E2 red-team: PII rendered inside an open shadow root — a real web-
+  component pattern (most design-system components use one). document.querySelectorAll
+  and a plain TreeWalker over document.body never descend into a shadow tree, so a
+  DOM-text extractor built on those APIs structurally cannot see this content, even
+  though it renders on screen exactly like any other text.</p>
+
+  <div id="host" data-technique="shadow-dom-text"></div>
+</div>
+</main>
+<script>
+  const host = document.getElementById("host");
+  const root = host.attachShadow({ mode: "open" });
+  const p = document.createElement("p");
+  p.textContent = "Account holder: Rohan Mehta, phone 9123456780";
+  root.appendChild(p);
+</script>
+</body></html>

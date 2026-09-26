@@ -1,0 +1,181 @@
+{
+  "generatedAt": "2026-09-25T19:17:59.170Z",
+  "note": "Single-step decision-quality probes (does redaction change the model's chosen action/answer), not full multi-step task runs — see file header.",
+  "arms": {
+    "redacted": {
+      "tasks": 5,
+      "successRate": 0.4,
+      "medianServerMs": 140872,
+      "medianBytesSent": 83957,
+      "totalLeakCatch": 2
+    },
+    "dom": {
+      "tasks": 5,
+      "successRate": 0.6,
+      "medianServerMs": 32852,
+      "medianBytesSent": 4217,
+      "totalLeakCatch": 2
+    },
+    "raw-image": {
+      "tasks": 5,
+      "successRate": 0.4,
+      "medianServerMs": 107765,
+      "medianBytesSent": 93241,
+      "totalLeakCatch": 2
+    }
+  },
+  "redactedVsRawPercentagePoints": 0,
+  "withinFivePointBar": true,
+  "results": [
+    {
+      "arm": "redacted",
+      "task": "register-fill-name",
+      "success": true,
+      "status": "action",
+      "serverMs": 135280,
+      "wallMs": 135310,
+      "bytesSent": 91225,
+      "leakCatch": 2
+    },
+    {
+      "arm": "dom",
+      "task": "register-fill-name",
+      "success": true,
+      "status": "action",
+      "serverMs": 32852,
+      "wallMs": 32859,
+      "bytesSent": 4476,
+      "leakCatch": 2
+    },
+    {
+      "arm": "raw-image",
+      "task": "register-fill-name",
+      "success": false,
+      "status": "error",
+      "serverMs": 180152,
+      "wallMs": 180159,
+      "bytesSent": 78101,
+      "leakCatch": 2
+    },
+    {
+      "arm": "redacted",
+      "task": "kyc-set-occupation",
+      "success": true,
+      "status": "action",
+      "serverMs": 140872,
+      "wallMs": 140878,
+      "bytesSent": 83957,
+      "leakCatch": 0
+    },
+    {
+      "arm": "dom",
+      "task": "kyc-set-occupation",
+      "success": true,
+      "status": "action",
+      "serverMs": 45290,
+      "wallMs": 45298,
+      "bytesSent": 5948,
+      "leakCatch": 0
+    },
+    {
+      "arm": "raw-image",
+      "task": "kyc-set-occupation",
+      "success": true,
+      "status": "action",
+      "serverMs": 107765,
+      "wallMs": 107771,
+      "bytesSent": 105249,
+      "leakCatch": 0
+    },
+    {
+      "arm": "redacted",
+      "task": "checkout-order-total",
+      "success": false,
+      "status": "action",
+      "serverMs": 102374,
+      "wallMs": 102379,
+      "bytesSent": 61494,
+      "leakCatch": 0
+    },
+    {
+      "arm": "dom",
+      "task": "checkout-order-total",
+      "success": false,
+      "status": "error",
+      "serverMs": 180146,
+      "wallMs": 180151,
+      "bytesSent": 4217,
+      "leakCatch": 0
+    },
+    {
+      "arm": "raw-image",
+      "task": "checkout-order-total",
+      "success": false,
+      "status": "action",
+      "serverMs": 135878,
+      "wallMs": 135885,
+      "bytesSent": 64306,
+      "leakCatch": 0
+    },
+    {
+      "arm": "redacted",
+      "task": "inbox-find-otp",
+      "success": false,
+      "status": "error",
+      "serverMs": 180155,
+      "wallMs": 180160,
+      "bytesSent": 87313,
+      "leakCatch": 0
+    },
+    {
+      "arm": "dom",
+      "task": "inbox-find-otp",
+      "success": false,
+      "status": "action",
+      "serverMs": 30852,
+      "wallMs": 30856,
+      "bytesSent": 4064,
+      "leakCatch": 0
+    },
+    {
+      "arm": "raw-image",
+      "task": "inbox-find-otp",
+      "success": false,
+      "status": "action",
+      "serverMs": 98617,
+      "wallMs": 98622,
+      "bytesSent": 93241,
+      "leakCatch": 0
+    },
+    {
+      "arm": "redacted",
+      "task": "social-summarise",
+      "success": false,
+      "status": "error",
+      "serverMs": 180152,
+      "wallMs": 180158,
+      "bytesSent": 83239,
+      "leakCatch": 0
+    },
+    {
+      "arm": "dom",
+      "task": "social-summarise",
+      "success": true,
+      "status": "action",
+      "serverMs": 23499,
+      "wallMs": 23503,
+      "bytesSent": 3410,
+      "leakCatch": 0
+    },
+    {
+      "arm": "raw-image",
+      "task": "social-summarise",
+      "success": true,
+      "status": "action",
+      "serverMs": 86138,
+      "wallMs": 86144,
+      "bytesSent": 96447,
+      "leakCatch": 0
+    }
+  ]
+}

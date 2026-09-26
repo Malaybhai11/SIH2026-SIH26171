@@ -1,0 +1,155 @@
+{
+  "generatedAt": "2026-09-25T19:57:09.017Z",
+  "total": 19,
+  "passed": 19,
+  "leaked": 0,
+  "byCategory": {
+    "unicode": {
+      "total": 5,
+      "leaked": 0
+    },
+    "css-dom": {
+      "total": 6,
+      "leaked": 0
+    },
+    "encoding": {
+      "total": 2,
+      "leaked": 0
+    },
+    "correlation": {
+      "total": 2,
+      "leaked": 0
+    },
+    "canvas-svg": {
+      "total": 2,
+      "leaked": 0
+    },
+    "shadow-dom": {
+      "total": 1,
+      "leaked": 0
+    },
+    "network": {
+      "total": 1,
+      "leaked": 0
+    }
+  },
+  "results": [
+    {
+      "id": "zw-split-email",
+      "category": "unicode",
+      "leaked": false,
+      "detail": "zero-width chars spliced into an email"
+    },
+    {
+      "id": "zw-split-phone",
+      "category": "unicode",
+      "leaked": false,
+      "detail": "zero-width chars spliced into a phone number"
+    },
+    {
+      "id": "homoglyph-email",
+      "category": "unicode",
+      "leaked": false,
+      "detail": "Cyrillic homoglyphs substituted for Latin letters in an email"
+    },
+    {
+      "id": "fullwidth-email",
+      "category": "unicode",
+      "leaked": false,
+      "detail": "fullwidth Unicode forms spelling out an email"
+    },
+    {
+      "id": "rtl-reversed-cc",
+      "category": "unicode",
+      "leaked": false,
+      "detail": "RTL override reversing a Luhn-valid card number's stored digit order"
+    },
+    {
+      "id": "css-before-content",
+      "category": "css-dom",
+      "leaked": false,
+      "detail": "::before generated-content PII, pixel coverage=1.00"
+    },
+    {
+      "id": "css-after-content",
+      "category": "css-dom",
+      "leaked": false,
+      "detail": "::after generated-content PII, pixel coverage=1.00"
+    },
+    {
+      "id": "aria-label-sole-source",
+      "category": "css-dom",
+      "leaked": false,
+      "detail": "aria-label is the ONLY accessible text on the element — must still be redacted"
+    },
+    {
+      "id": "aria-label-with-visible-text",
+      "category": "css-dom",
+      "leaked": false,
+      "detail": "aria-label carries PII alongside unrelated real visible text — must never surface"
+    },
+    {
+      "id": "title-attribute",
+      "category": "css-dom",
+      "leaked": false,
+      "detail": "title attribute (tooltip) carries PII alongside unrelated visible text"
+    },
+    {
+      "id": "delayed-mutation",
+      "category": "css-dom",
+      "leaked": false,
+      "detail": "PII added to the DOM 1200ms after load, scanned on a later step"
+    },
+    {
+      "id": "base64-email",
+      "category": "encoding",
+      "leaked": false,
+      "detail": "base64-encoded email as visible page text"
+    },
+    {
+      "id": "hex-phone",
+      "category": "encoding",
+      "leaked": false,
+      "detail": "hex-encoded phone number as visible page text"
+    },
+    {
+      "id": "split-phone-table",
+      "category": "correlation",
+      "leaked": false,
+      "detail": "phone split 98765|43210 across adjacent table cells — checked via raw adjacent-node concatenation, not this script's own debug joiner"
+    },
+    {
+      "id": "split-email-divs",
+      "category": "correlation",
+      "leaked": false,
+      "detail": "email split kavya.nair|@example.org across adjacent divs — checked via raw adjacent-node concatenation"
+    },
+    {
+      "id": "canvas-filltext",
+      "category": "canvas-svg",
+      "leaked": false,
+      "detail": "canvas fillText PII — DOM channel silent (correct); OCR boxes=3, AADHAAR token minted=true",
+      "ocrBoxes": 3
+    },
+    {
+      "id": "svg-text",
+      "category": "canvas-svg",
+      "leaked": false,
+      "detail": "SVG <text> PII — DOM redacted=true, pixel coverage of PAN value=1.00",
+      "pixelCoverage": 1
+    },
+    {
+      "id": "shadow-dom-text",
+      "category": "shadow-dom",
+      "leaked": false,
+      "detail": "open shadow-root text — DOM channel leak=false, pixel coverage name=1.00 phone=1.00",
+      "pixelCoverage": 1
+    },
+    {
+      "id": "network-boundary-run-task",
+      "category": "network",
+      "leaked": false,
+      "detail": "6/6 fixtures produced 0 secrets in /agent/last-received across a real RUN_TASK"
+    }
+  ]
+}

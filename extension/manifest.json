@@ -4,7 +4,7 @@
   "short_name": "Aavaran",
   "version": "0.2.0",
   "description": "On-device visual perception + PII redaction for a lightweight browser agent. Raw screen content never leaves the browser (SIH PS 26171).",
-  "permissions": ["activeTab", "scripting", "storage", "tabs", "alarms", "notifications", "downloads", "offscreen"],
+  "permissions": ["activeTab", "scripting", "storage", "tabs", "alarms", "notifications", "downloads", "offscreen", "webNavigation"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "Aavaran — Private Browser Agent" },
@@ -12,7 +12,8 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "content_security_policy": {

@@ -4,6 +4,8 @@
 import { MSG, STATUS } from "./lib/messages.js";
 import { renderMarkdownLite } from "./lib/markdownLite.js";
 import { saveTemplate, getTemplates } from "./lib/memoryStore.js";
+import { detectDeviceTier } from "./lib/deviceTier.js";
+import { t } from "./lib/i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -63,11 +65,102 @@ const els = {
   previewInfo: $("previewInfo"),
   xray: $("xray"),
   perceptionMode: $("perceptionMode"),
+  redactionMode: $("redactionMode"),
   sendScreenshot: $("sendScreenshot"),
   humanize: $("humanize"),
+  streamResponses: $("streamResponses"),
   tabMetrics: $("tabMetrics"),
   tabLog: $("tabLog"),
+  tabSettings: $("tabSettings"),
+  settingsPanel: $("settingsPanel"),
+  termLabel: $("termLabel"),
+  termValue: $("termValue"),
+  termIsRegex: $("termIsRegex"),
+  termAdd: $("termAdd"),
+  termList: $("termList"),
+  sitePolicyHost: $("sitePolicyHost"),
+  sitePolicy: $("sitePolicy"),
+  downloadReport: $("downloadReport"),
+  language: $("language"),
+  micBtn: $("micBtn"),
 };
+
+// Static UI-chrome elements translated by applyI18n() — everything the agent itself
+// writes (answers, log lines, sub-agent goals, extracted page text) is left alone.
+const i18nEls = {
+  tagline: $("tagline"),
+  historyMemory: $("openDashboard"),
+  lblLocalOnly: $("lblLocalOnly"),
+  lblMultiAgent: $("lblMultiAgent"),
+  lblPerception: $("lblPerception"),
+  lblSendScreenshot: $("lblSendScreenshot"),
+  lblHumanize: $("lblHumanize"),
+  lblLanguage: $("lblLanguage"),
+  lblMaxIterations: $("lblMaxIterations"),
+  run: $("run"),
+  takeOver: $("takeOver"),
+  cancel: $("cancel"),
+  saveTemplateBtn: $("saveTemplateBtn"),
+  confirmAllow: $("confirmAllow"),
+  confirmDeny: $("confirmDeny"),
+  resumeTask: $("resumeTask"),
+  tabTaskLabel: $("tabTaskLabel"),
+  tabPlanLabel: $("tabPlanLabel"),
+  tabSubAgentsLabel: $("tabSubAgentsLabel"),
+  tabNotesLabel: $("tabNotesLabel"),
+  tabPrivacyLabel: $("tabPrivacyLabel"),
+  tabRedactLabel: $("tabRedactLabel"),
+  tabMetricsLabel: $("tabMetricsLabel"),
+  tabLogLabel: $("tabLogLabel"),
+  answerHeading: $("answerHeading"),
+  copyAnswer: $("copyAnswer"),
+  tryLabel: $("tryLabel"),
+  templateChipsGroup: $("templateChipsGroup"),
+  previewBtn: $("previewBtn"),
+};
+
+let currentLang = "en";
+let micListening = false;
+
+function applyI18n(lang) {
+  currentLang = lang;
+  document.documentElement.lang = lang;
+  i18nEls.tagline.textContent = t("tagline", lang);
+  i18nEls.historyMemory.textContent = t("historyMemory", lang);
+  i18nEls.lblLocalOnly.textContent = t("localOnly", lang);
+  i18nEls.lblMultiAgent.textContent = t("multiAgent", lang);
+  i18nEls.lblPerception.textContent = t("perception", lang);
+  i18nEls.lblSendScreenshot.textContent = t("sendScreenshot", lang);
+  i18nEls.lblHumanize.textContent = t("humanizeInput", lang);
+  i18nEls.lblLanguage.textContent = t("language", lang);
+  i18nEls.lblMaxIterations.textContent = t("maxIterations", lang);
+  i18nEls.run.textContent = t("run", lang);
+  i18nEls.takeOver.textContent = t("takeOver", lang);
+  i18nEls.cancel.textContent = t("cancel", lang);
+  i18nEls.saveTemplateBtn.textContent = t("saveAsTemplate", lang);
+  i18nEls.confirmAllow.textContent = t("allow", lang);
+  i18nEls.confirmDeny.textContent = t("deny", lang);
+  i18nEls.resumeTask.textContent = t("resume", lang);
+  i18nEls.tabTaskLabel.textContent = t("tabTask", lang);
+  i18nEls.tabPlanLabel.textContent = t("tabPlan", lang);
+  i18nEls.tabSubAgentsLabel.textContent = t("tabSubAgents", lang);
+  i18nEls.tabNotesLabel.textContent = t("tabNotes", lang);
+  i18nEls.tabPrivacyLabel.textContent = t("tabPrivacy", lang);
+  i18nEls.tabRedactLabel.textContent = t("tabRedact", lang);
+  i18nEls.tabMetricsLabel.textContent = t("tabMetrics", lang);
+  i18nEls.tabLogLabel.textContent = t("tabLog", lang);
+  i18nEls.answerHeading.textContent = t("answer", lang);
+  i18nEls.copyAnswer.textContent = t("copy", lang);
+  i18nEls.tryLabel.textContent = t("tryLabel", lang);
+  i18nEls.templateChipsGroup.textContent = t("savedLabel", lang);
+  i18nEls.previewBtn.textContent = t("previewThisPage", lang);
+  els.prompt.placeholder = t("promptPlaceholder", lang);
+  els.templateLabel.placeholder = t("templateLabelPlaceholder", lang);
+  // Only overwrite the preview info line while it's still showing its default text
+  // (never once a real preview result — that's live data, not UI chrome).
+  if (!previewShown) els.previewInfo.textContent = t("previewInfoDefault", lang);
+  els.micBtn.title = micListening ? t("micStop", lang) : t("micStart", lang);
+}
 
 const BADGE_CLASS = {
   [STATUS.IDLE]: "",
@@ -96,6 +189,7 @@ const TAB_PANELS = {
   redact: els.redactPanel,
   metrics: els.metricsPanel,
   log: els.logPanel,
+  settings: els.settingsPanel,
 };
 const TAB_BUTTONS = {
   task: els.tabTask,
@@ -106,6 +200,7 @@ const TAB_BUTTONS = {
   redact: els.tabRedact,
   metrics: els.tabMetrics,
   log: els.tabLog,
+  settings: els.tabSettings,
 };
 
 let activeTab = "task";
@@ -132,6 +227,65 @@ function setTabAvailable(name, available) {
 for (const [name, btn] of Object.entries(TAB_BUTTONS)) {
   btn.addEventListener("click", () => showTab(name));
 }
+
+// ---- Voice input (Web Speech API) ----
+// Runs entirely in the popup's own page context — no manifest permission exists
+// for the microphone (Chrome extensions request it via getUserMedia like any web
+// page, there's just no declarative "microphone" permission key). Feature-detected:
+// browsers without SpeechRecognition (or a policy that disables it) just never see
+// the button, rather than the popup throwing when clicked.
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+if (SpeechRecognitionCtor) {
+  els.micBtn.hidden = false;
+  recognition = new SpeechRecognitionCtor();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.onresult = (ev) => {
+    let finalText = "";
+    let interimText = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) finalText += r[0].transcript;
+      else interimText += r[0].transcript;
+    }
+    // Replace anything from this recognition pass so far rather than appending on
+    // every partial result — voiceBase is what was in the box before this pass started.
+    els.prompt.value = (voiceBase + " " + finalText + interimText).trim();
+    updateChipsVisibility();
+  };
+  recognition.onerror = () => stopVoiceInput();
+  recognition.onend = () => stopVoiceInput();
+}
+let voiceBase = "";
+function startVoiceInput() {
+  if (!recognition || micListening) return;
+  voiceBase = els.prompt.value;
+  recognition.lang = currentLang === "hi" ? "hi-IN" : "en-IN";
+  try {
+    recognition.start();
+  } catch (e) {
+    return; // e.g. already started, or mic permission denied — leave button as-is
+  }
+  micListening = true;
+  els.micBtn.classList.add("listening");
+  els.micBtn.title = t("micStop", currentLang);
+}
+function stopVoiceInput() {
+  if (!micListening) return;
+  micListening = false;
+  els.micBtn.classList.remove("listening");
+  els.micBtn.title = t("micStart", currentLang);
+  try {
+    recognition.stop();
+  } catch (e) {
+    /* already stopped */
+  }
+}
+els.micBtn.addEventListener("click", () => {
+  if (micListening) stopVoiceInput();
+  else startVoiceInput();
+});
 
 // ---- Example prompt chips ----
 // Shown only while the task is idle and the textarea is empty — not
@@ -241,10 +395,9 @@ els.copyAnswer.addEventListener("click", async () => {
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
-    const original = els.copyAnswer.textContent;
-    els.copyAnswer.textContent = "Copied!";
+    els.copyAnswer.textContent = t("copied", currentLang);
     setTimeout(() => {
-      els.copyAnswer.textContent = original;
+      els.copyAnswer.textContent = t("copy", currentLang);
     }, 1500);
   } catch (e) {
     /* clipboard permission denied or unavailable — ignore */
@@ -257,8 +410,18 @@ function render(state) {
   lastStatus = state.status;
   const running = ![STATUS.IDLE, STATUS.DONE, STATUS.ERROR].includes(state.status);
 
-  els.status.textContent = state.status + (state.iteration ? ` ${state.iteration}/${state.maxIterations}` : "");
+  els.status.textContent = t(`status.${state.status}`, currentLang) + (state.iteration ? ` ${state.iteration}/${state.maxIterations}` : "");
   els.status.className = "badge " + (BADGE_CLASS[state.status] ?? "");
+
+  // Live streaming progress (only populated when the "Stream responses" setting is on
+  // and /agent/step/stream is in use) — replaces the blank REASONING wait with
+  // "waiting for model..." then the model's partial reasoning text as it arrives.
+  const streaming = state.status === STATUS.REASONING && (state.streamPhase || state.streamText);
+  const streamLabel = streaming
+    ? state.streamText
+      ? truncate(state.streamText, 160)
+      : humanizeStreamPhase(state.streamPhase)
+    : "";
   els.run.disabled = running;
   els.cancel.disabled = !running;
 
@@ -268,14 +431,20 @@ function render(state) {
   els.takeOver.hidden = !running || paused;
   els.pauseBanner.hidden = !paused;
   if (paused) {
-    els.pauseText.textContent = state.error || "Paused — click Resume to continue.";
+    // state.error, when present, is the agent's own message (e.g. a CAPTCHA note) —
+    // left untranslated; only the generic fallback is UI chrome.
+    els.pauseText.textContent = state.error || t("pausedDefault", currentLang);
   }
 
   // Confirmation banner — needs attention regardless of the active tab.
   const awaitingConfirm = state.status === STATUS.AWAITING_CONFIRMATION && !!state.pendingConfirmation;
   els.confirmBanner.hidden = !awaitingConfirm;
   if (awaitingConfirm) {
-    els.confirmText.textContent = state.pendingConfirmation.description || "Confirm this action?";
+    const isTokenRelease = state.pendingConfirmation.kind === "token_release";
+    els.confirmBanner.classList.toggle("token-release", isTokenRelease);
+    els.confirmText.textContent = isTokenRelease
+      ? `Privacy guard — ${state.pendingConfirmation.description || "blocked a value release"}`
+      : state.pendingConfirmation.description || "Confirm this action?";
   }
 
   if (state.status === STATUS.ERROR) {
@@ -291,14 +460,16 @@ function render(state) {
 
   updateChipsVisibility();
 
-  els.collected.textContent = state.accumulatedData?.length
-    ? `${state.accumulatedData.length} item(s) collected` +
-      (state.lastVisionMode ? ` · vision: ${state.lastVisionMode}` : "") +
-      (state.lastScreenState ? ` · screen: ${state.lastScreenState}` : "") +
-      (state.localOnly ? " · LOCAL-ONLY" : "")
-    : state.lastVisionMode
-      ? `vision: ${state.lastVisionMode}${state.localOnly ? " · LOCAL-ONLY" : ""}`
-      : "";
+  els.collected.textContent = streaming
+    ? streamLabel
+    : state.accumulatedData?.length
+      ? `${state.accumulatedData.length} item(s) collected` +
+        (state.lastVisionMode ? ` · vision: ${state.lastVisionMode}` : "") +
+        (state.lastScreenState ? ` · screen: ${state.lastScreenState}` : "") +
+        (state.localOnly ? " · LOCAL-ONLY" : "")
+      : state.lastVisionMode
+        ? `vision: ${state.lastVisionMode}${state.localOnly ? " · LOCAL-ONLY" : ""}`
+        : "";
 
   // Plan tab — only shown for genuinely multi-part tasks (>1 subtask); simple
   // tasks look identical to before this feature existed.
@@ -416,7 +587,7 @@ function render(state) {
       byType +
       `<div style="margin-top:6px">${rows}</div>`;
   } else {
-    els.redactBody.innerHTML = `<p class="muted">No PII detected in the extracted context.</p>`;
+    els.redactBody.innerHTML = `<p class="muted">${t("noPii", currentLang)}</p>`;
   }
 
   // Metrics tab — per-step latency breakdown + client resource use
@@ -429,22 +600,26 @@ function render(state) {
         <span>JS heap (engine)</span><b>${eng.memory ? `${eng.memory.jsHeapUsedMB} MB` : "n/a"}</b>
         <span>cache hits</span><b>frame ${eng.cache?.frame ?? 0} · regions ${eng.cache?.region ?? 0} · NER ${eng.cache?.ner ?? 0}</b>
         <span>privacy</span><b>${state.privacy?.boxesPainted ?? 0} boxes painted · ${state.privacy?.tokens ?? 0} tokens · gate fixes ${state.privacy?.gateFixes ?? 0} · ${Math.round((state.privacy?.bytesSent ?? 0) / 1024)} KB sent</b>
+        <span>token release blocks</span><b>${state.privacy?.tokenReleaseBlocks ?? 0}</b>
       </div>`
     : "";
   if (iters.length) {
-    const head = `<tr><th>#</th><th>DOM</th><th>text PII</th><th>vision</th><th>paint</th><th>server</th><th>total</th></tr>`;
+    const head = `<tr><th>#</th><th>DOM</th><th>text PII</th><th>vision</th><th>paint</th><th>server</th><th>total</th><th>image</th></tr>`;
     const body = iters
       .map(
         (m) =>
-          `<tr><td>${m.iteration}</td><td>${m.domMs ?? "-"}</td><td>${m.textPiiMs ?? "-"}</td><td>${m.visionMs ?? "-"}${m.cacheHit ? "*" : ""}</td><td>${m.paintMs ?? "-"}</td><td>${m.serverMs ?? "-"}</td><td>${m.totalMs ?? "-"}</td></tr>`,
+          `<tr><td>${m.iteration}</td><td>${m.domMs ?? "-"}</td><td>${m.textPiiMs ?? "-"}</td><td>${m.visionMs ?? "-"}${m.cacheHit ? "*" : ""}</td><td>${m.paintMs ?? "-"}</td><td>${m.serverMs ?? "-"}</td><td>${m.totalMs ?? "-"}</td><td title="${escapeHtml(m.imageGateReason || "")}">${m.imageSent ? "sent" : "-"}</td></tr>`,
       )
       .join("");
     const avg = (k) => Math.round(iters.reduce((a, m) => a + (m[k] || 0), 0) / iters.length);
+    const imageSentN = iters.filter((m) => m.imageSent).length;
+    const imageSentPct = Math.round((100 * imageSentN) / iters.length);
     els.metricsBody.innerHTML =
       engHtml +
-      `<table class="metrics">${head}${body}</table><p class="muted">avg on-device perception ${avg("perceptionMs")} ms · avg step ${avg("totalMs")} ms · * = frame cache hit</p>`;
+      `<table class="metrics">${head}${body}</table><p class="muted">avg on-device perception ${avg("perceptionMs")} ms · avg step ${avg("totalMs")} ms · * = frame cache hit</p>` +
+      `<p class="muted">screenshot sent on ${imageSentN}/${iters.length} step(s) (${imageSentPct}%) — hover a row's "image" cell for the gate's reason</p>`;
   } else {
-    els.metricsBody.innerHTML = engHtml + `<p class="muted">No iterations yet.</p>`;
+    els.metricsBody.innerHTML = engHtml + `<p class="muted">${t("noIterations", currentLang)}</p>`;
   }
 
   // Privacy X-ray — during a task, show the last frame the server received
@@ -501,20 +676,152 @@ els.previewBtn.addEventListener("click", async () => {
 // ---- Settings (persisted by the background) ----
 async function loadSettingsUi() {
   const s = (await chrome.storage.local.get("agentSettings")).agentSettings || {};
-  if (s.perceptionMode) els.perceptionMode.value = s.perceptionMode;
+  // Mirror background.js's loadSettings(): before the background has persisted its
+  // one-time device-adaptive default, show that same default here instead of the
+  // HTML's static "balanced" option, so the popup never displays a stale value.
+  els.perceptionMode.value = s.perceptionMode || detectDeviceTier();
+  if (s.redactionMode) els.redactionMode.value = s.redactionMode;
   if (s.sendScreenshot !== undefined) els.sendScreenshot.checked = !!s.sendScreenshot;
   if (s.humanize !== undefined) els.humanize.checked = !!s.humanize;
+  if (s.streamResponses !== undefined) els.streamResponses.checked = !!s.streamResponses;
+  els.language.value = s.language === "hi" ? "hi" : "en";
+  applyI18n(els.language.value);
 }
 function saveSettingsUi() {
+  // background.js merges this into the stored settings object, so only the
+  // changed-looking fields need to be sent — but sending them all keeps this in
+  // sync even if a future field gets added without touching this list.
   chrome.runtime.sendMessage({
     type: MSG.SAVE_SETTINGS,
-    payload: { perceptionMode: els.perceptionMode.value, sendScreenshot: els.sendScreenshot.checked, humanize: els.humanize.checked },
+    payload: {
+      perceptionMode: els.perceptionMode.value,
+      redactionMode: els.redactionMode.value,
+      sendScreenshot: els.sendScreenshot.checked,
+      humanize: els.humanize.checked,
+      streamResponses: els.streamResponses.checked,
+      language: els.language.value,
+    },
   });
 }
-for (const el of [els.perceptionMode, els.sendScreenshot, els.humanize]) el.addEventListener("change", saveSettingsUi);
+for (const el of [els.perceptionMode, els.redactionMode, els.sendScreenshot, els.humanize, els.streamResponses]) el.addEventListener("change", saveSettingsUi);
+els.language.addEventListener("change", () => {
+  applyI18n(els.language.value);
+  saveSettingsUi();
+});
 loadSettingsUi();
 // load the models while the user types (hides first-step model load latency)
 chrome.runtime.sendMessage({ type: MSG.WARMUP }).catch(() => {});
+
+// ---- B3: custom sensitive terms ----
+async function loadCustomTerms() {
+  const s = (await chrome.storage.local.get("agentSettings")).agentSettings || {};
+  return s.customTerms || [];
+}
+async function saveCustomTerms(terms) {
+  await chrome.runtime.sendMessage({ type: MSG.SAVE_SETTINGS, payload: { customTerms: terms } });
+}
+function renderTermList(terms) {
+  if (!terms.length) {
+    els.termList.innerHTML = `<li class="muted">No custom terms yet.</li>`;
+    return;
+  }
+  els.termList.innerHTML = terms
+    .map(
+      (t, i) =>
+        `<li><span>${escapeHtml(t.label || "CUSTOM")}<span class="term-meta"> — ${t.isRegex ? "regex " : ""}"${escapeHtml(truncate(t.term, 40))}"</span></span><button type="button" data-idx="${i}">Remove</button></li>`,
+    )
+    .join("");
+  els.termList.querySelectorAll("button[data-idx]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const terms = await loadCustomTerms();
+      terms.splice(Number(btn.dataset.idx), 1);
+      await saveCustomTerms(terms);
+      renderTermList(terms);
+    });
+  });
+}
+els.termAdd.addEventListener("click", async () => {
+  const term = els.termValue.value.trim();
+  if (!term) {
+    els.termValue.focus();
+    return;
+  }
+  if (els.termIsRegex.checked) {
+    try {
+      new RegExp(term);
+    } catch (e) {
+      els.termValue.setCustomValidity(`Invalid regex: ${e.message}`);
+      els.termValue.reportValidity();
+      return;
+    }
+  }
+  els.termValue.setCustomValidity("");
+  const terms = await loadCustomTerms();
+  terms.push({ label: els.termLabel.value.trim() || "CUSTOM", term, isRegex: els.termIsRegex.checked });
+  await saveCustomTerms(terms);
+  els.termLabel.value = "";
+  els.termValue.value = "";
+  els.termIsRegex.checked = false;
+  renderTermList(terms);
+});
+loadCustomTerms().then(renderTermList);
+
+// ---- B3: per-site privacy policy ----
+let currentSiteHost = null;
+async function loadSitePolicyUi() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const u = tab?.url ? new URL(tab.url) : null;
+    currentSiteHost = u && /^https?:$/.test(u.protocol) ? u.hostname : null;
+  } catch {
+    currentSiteHost = null;
+  }
+  els.sitePolicyHost.textContent = currentSiteHost ? `Applies to: ${currentSiteHost}` : "Open a regular web page to set a site policy.";
+  els.sitePolicy.disabled = !currentSiteHost;
+  if (!currentSiteHost) return;
+  const s = (await chrome.storage.local.get("agentSettings")).agentSettings || {};
+  els.sitePolicy.value = s.sitePolicies?.[currentSiteHost] || "none";
+}
+els.sitePolicy.addEventListener("change", async () => {
+  if (!currentSiteHost) return;
+  const s = (await chrome.storage.local.get("agentSettings")).agentSettings || {};
+  const sitePolicies = { ...(s.sitePolicies || {}) };
+  if (els.sitePolicy.value === "none") delete sitePolicies[currentSiteHost];
+  else sitePolicies[currentSiteHost] = els.sitePolicy.value;
+  await chrome.runtime.sendMessage({ type: MSG.SAVE_SETTINGS, payload: { sitePolicies } });
+});
+loadSitePolicyUi();
+
+// ---- B3: downloadable per-task privacy report ----
+els.downloadReport.addEventListener("click", () => {
+  const st = lastState;
+  if (!st) return;
+  const lines = [
+    "# Aavaran privacy report",
+    "",
+    `Generated: ${new Date().toISOString()}`,
+    `Task: ${st.prompt || "(none)"}`,
+    `Status: ${st.status}`,
+    "",
+    "## What was sent",
+    `- Bytes sent to server: ${st.privacy?.bytesSent ?? 0}`,
+    `- Redaction boxes painted: ${st.privacy?.boxesPainted ?? 0}`,
+    `- Distinct tokens minted: ${st.privacy?.tokens ?? 0}`,
+    `- Egress-gate rewrites (should be 0): ${st.privacy?.gateFixes ?? 0}`,
+    `- Token releases blocked by policy: ${st.privacy?.tokenReleaseBlocks ?? 0}`,
+    "",
+    "## Token types that existed (never the real values)",
+    ...(st.vaultCatalog?.length ? st.vaultCatalog.map((t) => `- ${t.token}: ${t.type}`) : ["(none)"]),
+    "",
+    "## Redaction summary (last step)",
+    `- Total spans redacted: ${st.lastRedactionSummary?.total ?? 0}`,
+    ...Object.entries(st.lastRedactionSummary?.byType || {}).map(([k, v]) => `  - ${k}: ${v}`),
+  ];
+  const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const filename = `aavaran-privacy-report-${(st.taskId || "task").slice(0, 8)}.md`;
+  chrome.downloads.download({ url, filename, saveAs: false }, () => URL.revokeObjectURL(url));
+});
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
@@ -523,6 +830,10 @@ function escapeHtml(s) {
 function truncate(s, n) {
   s = String(s ?? "");
   return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+function humanizeStreamPhase(phase) {
+  return { received: "sending request...", waiting_for_model: "waiting for model..." }[phase] || phase || "";
 }
 
 els.run.addEventListener("click", () => {

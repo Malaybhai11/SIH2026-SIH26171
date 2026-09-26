@@ -8,6 +8,7 @@
 // /agent/step call. State is mirrored to chrome.storage.session so a reopened popup can catch up.
 
 import { MSG, STATUS, CONTRACT_VERSION, DEFAULTS, STATE_KEY } from "./lib/messages.js";
+import { detectDeviceTier } from "./lib/deviceTier.js";
 import { getMemoryFacts, addHistoryEntry, rememberFact, addNote } from "./lib/memoryStore.js";
 import { Vault, applySpans, detectRuleSpans } from "./lib/redact.js";
 import { perception } from "./lib/perceptionClient.js";
@@ -18,16 +19,39 @@ import {
   sanitizeUrl,
   tokenizeOutgoing,
   backgroundNerTag,
+  checkTokenRelease,
+  needsScreenshot,
 } from "./lib/privacyPipeline.js";
 
 const SETTINGS_KEY = "agentSettings";
 async function loadSettings() {
   const stored = (await chrome.storage.local.get(SETTINGS_KEY).catch(() => ({})))[SETTINGS_KEY] || {};
+  let perceptionMode = stored.perceptionMode;
+  if (perceptionMode === undefined) {
+    // No saved choice yet (first run, or storage cleared): pick a one-time
+    // device-adaptive default from rough capability signals and persist it, so
+    // this never re-runs and never overrides a perceptionMode the user (via the
+    // popup) or a prior run of this same logic already saved.
+    perceptionMode = detectDeviceTier();
+    chrome.storage.local.set({ [SETTINGS_KEY]: { ...stored, perceptionMode } }).catch(() => {});
+  }
   return {
-    perceptionMode: stored.perceptionMode ?? DEFAULTS.perceptionMode,
+    perceptionMode: perceptionMode ?? DEFAULTS.perceptionMode,
     humanize: stored.humanize ?? DEFAULTS.humanize,
     sendScreenshot: stored.sendScreenshot ?? DEFAULTS.sendScreenshot,
+    streamResponses: stored.streamResponses ?? DEFAULTS.streamResponses,
+    language: stored.language ?? DEFAULTS.language,
+    redactionMode: stored.redactionMode ?? DEFAULTS.redactionMode,
   };
+}
+
+// B3: per-site privacy policy, set from the popup. "local-only" never calls the
+// real server for that host; "never-screenshot" strips the redacted screenshot
+// even when the global setting sends one; "ask-before-send" pauses for an
+// explicit decision before every server call on that host, not just risky ones.
+async function getSitePolicy(hostname) {
+  const stored = (await chrome.storage.local.get(SETTINGS_KEY).catch(() => ({})))[SETTINGS_KEY] || {};
+  return stored.sitePolicies?.[hostname] || "none";
 }
 
 // Task-scoped pseudonym vault (token <-> real value). Memory only; never persisted,
@@ -87,8 +111,11 @@ function freshState() {
     engineStats: null,
     lastVisual: null,
     lastRedactedImage: null,
+    streamPhase: null,
+    streamText: "",
     vaultCatalog: [],
-    privacy: { gateFixes: 0, boxesPainted: 0, tokens: 0, bytesSent: 0 },
+    privacy: { gateFixes: 0, boxesPainted: 0, tokens: 0, bytesSent: 0, tokenReleaseBlocks: 0 },
+    tokenReleaseLog: [],
   };
 }
 
@@ -306,6 +333,15 @@ const HARD_RISKY_KEYWORDS =
 const SOFT_RISKY_KEYWORDS = /\b(follow|unfollow|retweet|repost|like|favorite|tweet|post tweet)\b/i;
 const SOFT_RISKY_LABEL_MAX_LEN = 24;
 
+// A task that explicitly asks the agent to authenticate ("log in with username
+// X and password Y") — see the loginWall check below: on this kind of page,
+// filling and submitting the form IS the task, not something blocking it.
+const LOGIN_TASK_RE = /\b(log\s*in|sign\s*in|login)\b.{0,80}\b(username|user\s*name|password|email)\b/i;
+
+// How long an auto-detected CAPTCHA pause waits for a human to resume before the
+// sub-agent gives up and ends as an ERROR instead of hanging forever.
+const CAPTCHA_PAUSE_TIMEOUT_MS = 10 * 60 * 1000;
+
 function isRiskyAction(a, snapshot) {
   if (a.type !== "click") return false;
   const node = (snapshot.sanitizedDom || []).find((n) => n.id === a.targetId);
@@ -433,6 +469,16 @@ async function navAction(sub, action) {
   }
 }
 
+// D1: sanitizedDom ids from a non-root frame carry an "fN_" prefix (added when the
+// background script stitches every frame's snapshot into one, so ids stay unique
+// across frames). A frame's own content script only knows its OWN local ids
+// (it set the data-agent-id attributes), so the prefix has to come back off — and
+// the message has to be routed to that specific frame — before dispatch.
+function parseFrameTarget(id) {
+  const m = /^f(\d+)_(.+)$/.exec(id || "");
+  return m ? { frameId: Number(m[1]), localId: m[2] } : { frameId: 0, localId: id };
+}
+
 async function dispatchAction(sub, action, securityContext = {}) {
   // tokens ([PHONE_1], [NAME_2] ...) become real values only here, on-device
   if (!action.__securityDecision) {
@@ -442,8 +488,37 @@ async function dispatchAction(sub, action, securityContext = {}) {
     return { ok: false, error: action.__securityDecision?.reason || "Blocked by token release policy", privacyBlocked: true };
   }
   if (NAV_ACTIONS.has(action.type)) return navAction(sub, action);
+
+  if (action.type === "fill_form" && Array.isArray(action.fields)) {
+    const byFrame = new Map();
+    for (const f of action.fields) {
+      const { frameId, localId } = parseFrameTarget(f.targetId);
+      if (!byFrame.has(frameId)) byFrame.set(frameId, []);
+      byFrame.get(frameId).push({ ...f, targetId: localId });
+    }
+    const results = [];
+    let filled = 0;
+    for (const [frameId, fields] of byFrame) {
+      const res = await withTimeout(
+        chrome.tabs.sendMessage(
+          sub.tabId,
+          { type: MSG.EXECUTE_ACTION, action: { ...action, fields }, humanize: !!STATE.settings?.humanize },
+          { frameId },
+        ),
+        DEFAULTS.iterationTimeoutMs,
+        "content-action",
+      ).catch((e) => ({ ok: false, error: e.message, filled: 0, results: fields.map((f) => ({ targetId: f.targetId, ok: false, error: e.message })) }));
+      filled += res.filled || 0;
+      const prefix = frameId ? `f${frameId}_` : "";
+      results.push(...(res.results || []).map((r) => ({ ...r, targetId: prefix + r.targetId })));
+    }
+    return { ok: filled > 0, filled, results };
+  }
+
+  const { frameId, localId } = parseFrameTarget(action.targetId);
+  const localAction = action.targetId ? { ...action, targetId: localId } : action;
   return withTimeout(
-    chrome.tabs.sendMessage(sub.tabId, { type: MSG.EXECUTE_ACTION, action, humanize: !!STATE.settings?.humanize }),
+    chrome.tabs.sendMessage(sub.tabId, { type: MSG.EXECUTE_ACTION, action: localAction, humanize: !!STATE.settings?.humanize }, { frameId }),
     DEFAULTS.iterationTimeoutMs,
     "content-action",
   );
@@ -523,7 +598,15 @@ async function buildRequest(sub, ctx, snapshot, visual) {
   const memoryFacts = await Promise.all(
     (ctx.memoryFacts ?? []).map(async (f) => (typeof f === "string" ? tokenizeOutgoing(f, VAULT, nerTag) : { ...f, value: await tokenizeOutgoing(String(f.value ?? ""), VAULT, nerTag) })),
   );
-  const includeImage = !!STATE.settings?.sendScreenshot && !!visual?.redactedImage;
+  // D3: the popup's "send redacted screenshot" toggle is the user's ceiling (off
+  // means never, full stop); when it's on, the client still only actually attaches
+  // the image on steps that need it — canvas-heavy pages, an image-centric task,
+  // or when the on-device screen classifier itself isn't confident.
+  const gate = STATE.settings?.sendScreenshot
+    ? needsScreenshot({ prompt: sub.goal, rois: snapshot.rois, screen: visual?.screen })
+    : { send: false, reason: "sendScreenshot setting is off" };
+  sub.lastImageGate = gate;
+  const includeImage = gate.send && !!visual?.redactedImage;
   return {
     contractVersion: CONTRACT_VERSION,
     taskId: ctx.taskId,
@@ -613,8 +696,74 @@ function mockStep(sub, reqBody, snapshot) {
   };
 }
 
-async function callServer(sub, ctx, reqBody, snapshot) {
-  if (ctx.localOnly) return mockStep(sub, reqBody, snapshot);
+// Reads an SSE stream from /agent/step/stream, updating sub.streamPhase/sub.streamText
+// as "status"/"delta" events arrive (so the popup can show live progress instead of a
+// blank REASONING wait), and resolves with the "result" event's payload — which is the
+// exact same JSON shape callServer()'s plain-fetch path returns, so nothing downstream
+// (runSubLoop's resp.status handling) needs to know which path was used.
+async function callServerStream(sub, ctx, payload, streamUrl) {
+  // Only the initial connect (getting headers/first bytes) is bounded by
+  // iterationTimeoutMs; a slow provider streams progress well before that anyway, and
+  // the read loop below isn't cut off mid-stream by the same short timeout.
+  const res = await withTimeout(
+    fetch(streamUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      body: payload,
+    }),
+    DEFAULTS.iterationTimeoutMs,
+    "server-stream-connect",
+  );
+  if (!res.ok || !res.body) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} ${body.slice(0, 200)}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let result = null;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) !== -1) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const evMatch = raw.match(/^event:\s*(.+)$/m);
+        const dataMatch = raw.match(/^data:\s*(.+)$/m);
+        if (!dataMatch) continue;
+        const event = evMatch ? evMatch[1].trim() : "message";
+        let data;
+        try {
+          data = JSON.parse(dataMatch[1]);
+        } catch (e) {
+          continue; // malformed SSE frame — skip it, don't abort the whole stream
+        }
+        if (event === "status") {
+          sub.streamPhase = data.phase || null;
+          await ctx.onUpdate();
+        } else if (event === "delta") {
+          sub.streamText = `${sub.streamText || ""}${data.text || ""}`.slice(-2000);
+          await ctx.onUpdate();
+        } else if (event === "result") {
+          result = data;
+        } else if (event === "error") {
+          throw new Error(data.message || "stream error");
+        }
+      }
+    }
+  } finally {
+    sub.streamPhase = null;
+    sub.streamText = "";
+  }
+  if (!result) throw new Error("stream ended without a result event");
+  return result;
+}
+
+async function callServer(sub, ctx, reqBody, snapshot, forceLocalOnly = false) {
+  if (ctx.localOnly || forceLocalOnly) return mockStep(sub, reqBody, snapshot);
   // fail-closed egress gate: last check of every outgoing string before the network
   const gated = egressGate(reqBody, VAULT);
   if (gated.fixes) {
@@ -623,6 +772,15 @@ async function callServer(sub, ctx, reqBody, snapshot) {
   }
   const payload = JSON.stringify(gated.body);
   STATE.privacy.bytesSent += payload.length;
+  if (STATE.settings?.streamResponses) {
+    const streamUrl = ctx.serverUrl.replace(/\/agent\/step\/?$/, "/agent/step/stream");
+    try {
+      return await callServerStream(sub, ctx, payload, streamUrl);
+    } catch (e) {
+      subLog(sub, `streaming call failed (${e.message}); falling back to a plain request`, "warn");
+      // fall through to the non-streaming request below — same gated payload, no re-gating
+    }
+  }
   try {
     const res = await withTimeout(
       fetch(ctx.serverUrl, {
@@ -662,6 +820,8 @@ function mirrorSubToState(sub) {
   STATE.lastScreenState = sub.lastScreenState;
   STATE.lastVisual = sub.lastVisual ?? null;
   STATE.lastRedactedImage = sub.lastRedactedImage ?? null;
+  STATE.streamPhase = sub.streamPhase ?? null;
+  STATE.streamText = sub.streamText ?? "";
   STATE.metrics = sub.metrics;
   STATE.tabId = sub.tabId;
 }
@@ -670,13 +830,76 @@ function mirrorSubToState(sub) {
 // automatic pause on a detected CAPTCHA wall) without exiting runSubLoop's while
 // loop — a paused loop should idle, not be treated as finished. Callers are
 // responsible for restoring sub.status once this returns (it only sets PAUSED).
-async function waitWhilePaused(sub, ctx) {
-  if (!ctx.isPaused()) return;
-  sub.status = STATUS.PAUSED;
-  await ctx.onUpdate();
-  while (ctx.isPaused() && !ctx.isCancelled()) {
+// Pause and wait for an explicit user decision. STATE.pendingConfirmation is a
+// single global slot — if another sub-agent already claimed it, wait for it to
+// clear before claiming it for ourselves so two sub-agents never stomp each other.
+// Shared by the risky-action gate (a click that looks irreversible) and the token
+// release gate (B1: a token about to be typed somewhere it doesn't belong).
+// Nobody may be at the popup to answer (an unattended/scheduled run, or the user
+// just stepped away) — without a bound this blocks the current iteration forever,
+// which blocks the whole sub-agent loop forever with it (iteration only advances
+// once this call returns). The safe default on giving up is always deny, same as
+// cancellation — never auto-allow a risky action or a PII release just because
+// nobody answered in time.
+const CONFIRMATION_TIMEOUT_MS = 10 * 60 * 1000;
+
+async function awaitConfirmation(sub, ctx, { actionType, targetId = null, description, kind = "risky_action" }) {
+  while (STATE.pendingConfirmation && !ctx.isCancelled()) {
     await new Promise((r) => setTimeout(r, 500));
   }
+  if (ctx.isCancelled()) return false;
+
+  const prevSubStatus = sub.status;
+  const prevStateStatus = STATE.status;
+  STATE.pendingConfirmation = { subId: sub.id, actionType, targetId, description, kind, resolution: null };
+  STATE.status = STATUS.AWAITING_CONFIRMATION;
+  sub.status = STATUS.AWAITING_CONFIRMATION;
+  subLog(sub, `awaiting confirmation (${kind}): ${description}`, "warn");
+  await ctx.onUpdate();
+
+  const deadline = Date.now() + CONFIRMATION_TIMEOUT_MS;
+  let timedOut = false;
+  while (!STATE.pendingConfirmation?.resolution && !ctx.isCancelled()) {
+    if (Date.now() >= deadline) {
+      timedOut = true;
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  const resolution = ctx.isCancelled() || timedOut ? "deny" : STATE.pendingConfirmation?.resolution;
+  STATE.pendingConfirmation = null;
+  STATE.status = prevStateStatus;
+  sub.status = prevSubStatus;
+  await ctx.onUpdate();
+
+  const allowed = resolution === "allow";
+  const why = ctx.isCancelled() ? " (cancelled)" : timedOut ? " (no answer — timed out)" : "";
+  subLog(sub, `${allowed ? "allowed by user" : `denied${why}`}: ${description}`, allowed ? "info" : "warn");
+  return allowed;
+}
+
+// timeoutMs is left unset for a human-requested pause (MSG.PAUSE_TASK) — they'll
+// resume when they're ready, no reason to give up on them. An AUTO-pause (e.g. the
+// captcha wall below) passes one: unattended/automated runs have nobody to click
+// Resume, and without a bound the sub-agent — and the global RUNNING flag with it —
+// would hang forever, silently swallowing every future RUN_TASK for the rest of
+// the browser session. Returns "timeout" if it gave up, "resumed" otherwise.
+async function waitWhilePaused(sub, ctx, { timeoutMs = null } = {}) {
+  if (!ctx.isPaused()) return "resumed";
+  sub.status = STATUS.PAUSED;
+  await ctx.onUpdate();
+  const deadline = timeoutMs != null ? Date.now() + timeoutMs : null;
+  while (ctx.isPaused() && !ctx.isCancelled()) {
+    if (deadline != null && Date.now() >= deadline) {
+      // Only clear the global flag if nothing else (a real, still-relevant pause)
+      // claimed it in the meantime — this auto-pause is the one giving up, not
+      // necessarily the only reason pauseRequested is set right now.
+      if (STATE.pauseRequested) STATE.pauseRequested = false;
+      return "timeout";
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return "resumed";
 }
 
 // The PERCEIVE -> REDACT -> REASON -> ACT loop, parameterized over a single sub-agent's
@@ -750,6 +973,14 @@ async function runSubLoop(sub, ctx) {
       break;
     }
 
+    const iterHost = hostFromUrl(await getCurrentUrl(sub.tabId));
+    const sitePolicy = await getSitePolicy(iterHost);
+    const iterSettings =
+      sitePolicy === "never-screenshot" ? { ...STATE.settings, sendScreenshot: false } : STATE.settings;
+    if (sitePolicy === "local-only" && !ctx.localOnly) {
+      subLog(sub, `${iterHost}: local-only site policy — this step will not call the server`, "warn");
+    }
+
     let snapshot;
     let visual;
     let ptimings;
@@ -758,7 +989,7 @@ async function runSubLoop(sub, ctx) {
         tabId: sub.tabId,
         windowId: sub.windowId,
         vault: VAULT,
-        settings: STATE.settings,
+        settings: iterSettings,
         targetCount: sub.targetCount,
       }));
     } catch (e) {
@@ -801,11 +1032,25 @@ async function runSubLoop(sub, ctx) {
       subLog(sub, sub.error, "warn");
       STATE.pauseRequested = true;
       log("captcha wall detected — auto-pausing until user resumes", "warn");
-      await waitWhilePaused(sub, ctx);
+      const outcome = await waitWhilePaused(sub, ctx, { timeoutMs: CAPTCHA_PAUSE_TIMEOUT_MS });
       if (ctx.isCancelled()) break;
+      if (outcome === "timeout") {
+        sub.status = STATUS.ERROR;
+        sub.error =
+          "This page kept showing a CAPTCHA/bot-check challenge and nobody resumed the task " +
+          `within ${Math.round(CAPTCHA_PAUSE_TIMEOUT_MS / 60000)} minutes, so it was stopped. ` +
+          "Solve the challenge and re-run the task if it wasn't a false positive.";
+        subLog(sub, sub.error, "error");
+        break;
+      }
       continue; // re-perceive fresh once resumed, rather than using this stale snapshot
     }
-    if (snapshot.meta?.loginWall) {
+    // A login/sign-in page is only a "wall" (nothing to do, stop) when the task
+    // isn't asking to log in — e.g. "summarise my feed" on a logged-out site truly
+    // has nothing to read. "Log in with username X and password Y" IS the task on
+    // exactly the same kind of page, and should proceed to fill the form instead
+    // of stopping the moment it sees the form it's meant to submit.
+    if (snapshot.meta?.loginWall && !LOGIN_TASK_RE.test(sub.goal)) {
       sub.status = STATUS.DONE;
       sub.answer =
         `${host} is showing a sign-in wall, so there's no content to read. ` +
@@ -846,9 +1091,21 @@ async function runSubLoop(sub, ctx) {
     // REASONING
     sub.status = STATUS.REASONING;
     await ctx.onUpdate();
+    if (sitePolicy === "ask-before-send" && !ctx.localOnly) {
+      const allowed = await awaitConfirmation(sub, ctx, {
+        actionType: "server_send",
+        description: `${iterHost}: send this step's redacted context to the server? (per-site policy: ask before every send)`,
+        kind: "site_policy",
+      });
+      if (ctx.isCancelled()) break;
+      if (!allowed) {
+        subLog(sub, `${iterHost}: send denied by user — skipping this step's reasoning`, "warn");
+        continue;
+      }
+    }
     const reqBody = await buildRequest(sub, ctx, snapshot, visual);
     const serverT0 = performance.now();
-    const resp = await callServer(sub, ctx, reqBody, snapshot);
+    const resp = await callServer(sub, ctx, reqBody, snapshot, sitePolicy === "local-only");
     const serverMs = Math.round(performance.now() - serverT0);
 
     if (typeof resp.reasoning === "string" && resp.reasoning.trim()) {
@@ -869,6 +1126,8 @@ async function runSubLoop(sub, ctx) {
       cacheHit: !!visual?.cacheHit,
       serverMs,
       totalMs: Math.round(performance.now() - iterT0),
+      imageSent: !!sub.lastImageGate?.send,
+      imageGateReason: sub.lastImageGate?.reason ?? null,
     });
     try {
       STATE.engineStats = await perception("stats");
@@ -1018,47 +1277,44 @@ async function runSubLoop(sub, ctx) {
       break;
     }
 
+    // Token release gate (B1): a server that only ever sees tokens can still try to
+    // direct the client to type a real value somewhere it doesn't belong — a
+    // malicious page's own content (or an injected instruction) asking the agent to
+    // put a captured phone number into an unrelated comment box, or a value into a
+    // navigate URL (classic exfiltration). Block and ask before releasing anything
+    // that fails the policy; every decision is logged regardless of outcome.
+    {
+      let currentOrigin = null;
+      try {
+        currentOrigin = new URL(await getCurrentUrl(sub.tabId)).origin;
+      } catch {}
+      const release = checkTokenRelease(a, snapshot, VAULT, currentOrigin);
+      if (!release.ok) {
+        STATE.privacy.tokenReleaseBlocks = (STATE.privacy.tokenReleaseBlocks || 0) + release.blocked.length;
+        for (const b of release.blocked) {
+          STATE.tokenReleaseLog.push({ t: Date.now(), actionType: a.type, ...b });
+          if (STATE.tokenReleaseLog.length > 100) STATE.tokenReleaseLog.shift();
+        }
+        const summary = release.blocked.map((b) => `${b.type} (${b.reason})`).join("; ");
+        const allowed = await awaitConfirmation(sub, ctx, {
+          actionType: a.type,
+          targetId: a.targetId ?? null,
+          description: `release ${summary} via ${a.type}`,
+          kind: "token_release",
+        });
+        if (ctx.isCancelled()) break;
+        if (!allowed) continue; // re-perceive/re-decide next turn rather than dispatching
+      }
+    }
+
     // Risky-action confirmation gate: pause and wait for an explicit user decision
     // before dispatching a click on something that looks irreversible/consequential.
-    // STATE.pendingConfirmation is a single global slot — if another sub-agent
-    // already claimed it, wait for it to clear before claiming it for ourselves so
-    // two sub-agents never stomp each other.
     if (isRiskyAction(a, snapshot)) {
-      while (STATE.pendingConfirmation && !ctx.isCancelled()) {
-        await new Promise((r) => setTimeout(r, 500));
-      }
-      if (ctx.isCancelled()) break;
-
       const node = (snapshot.sanitizedDom || []).find((n) => n.id === a.targetId);
       const description = String(node?.text || `${a.type} on ${a.targetId ?? "element"}`).slice(0, 200);
-      const prevSubStatus = sub.status;
-      const prevStateStatus = STATE.status;
-      STATE.pendingConfirmation = {
-        subId: sub.id,
-        actionType: a.type,
-        targetId: a.targetId ?? null,
-        description,
-        resolution: null,
-      };
-      STATE.status = STATUS.AWAITING_CONFIRMATION;
-      sub.status = STATUS.AWAITING_CONFIRMATION;
-      subLog(sub, `awaiting confirmation for risky action: ${a.type} "${description}"`, "warn");
-      await ctx.onUpdate();
-
-      while (!STATE.pendingConfirmation?.resolution && !ctx.isCancelled()) {
-        await new Promise((r) => setTimeout(r, 500));
-      }
-      const resolution = ctx.isCancelled() ? "deny" : STATE.pendingConfirmation?.resolution;
-      STATE.pendingConfirmation = null;
-      STATE.status = prevStateStatus;
-      sub.status = prevSubStatus;
-      await ctx.onUpdate();
-
-      if (resolution !== "allow") {
-        subLog(sub, `action denied${ctx.isCancelled() ? " (cancelled)" : ""}: ${a.type} "${description}"`, "warn");
-        continue; // re-perceive/re-decide next turn rather than dispatching
-      }
-      subLog(sub, `action allowed by user: ${a.type} "${description}"`);
+      const allowed = await awaitConfirmation(sub, ctx, { actionType: a.type, targetId: a.targetId ?? null, description, kind: "risky_action" });
+      if (ctx.isCancelled()) break;
+      if (!allowed) continue; // re-perceive/re-decide next turn rather than dispatching
     }
 
     const detail = a.url || a.targetId || (a.amount != null ? `${a.amount}px` : "");
@@ -1312,6 +1568,8 @@ async function runSingleAgent(tab) {
     lastVisionMode: null,
     lastScreenState: null,
     lastThumbnail: null,
+    streamPhase: null,
+    streamText: "",
     narration: [],
     notes: [],
     savedImages: [],
@@ -1380,6 +1638,8 @@ async function runMultiAgent(tab) {
       lastVisionMode: null,
       lastScreenState: null,
       lastThumbnail: null,
+      streamPhase: null,
+      streamText: "",
       narration: [],
       notes: [],
       savedImages: [],
@@ -1558,8 +1818,8 @@ async function startTask({ prompt, serverUrl, localOnly, multiAgentEnabled, maxI
   }
 
   STATE = freshState();
-  VAULT = new Vault();
   STATE.settings = await loadSettings();
+  VAULT = new Vault(null, { mode: STATE.settings.redactionMode });
   STATE.taskId = crypto.randomUUID();
   STATE.prompt = prompt.trim();
   STATE.serverUrl = serverUrl || DEFAULTS.serverUrl;
@@ -1684,10 +1944,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg?.type === MSG.SAVE_SETTINGS) {
-    chrome.storage.local
-      .set({ [SETTINGS_KEY]: msg.payload })
-      .then(() => sendResponse({ ok: true }))
+    // Merge rather than replace — the popup only sends the fields its controls own,
+    // so a plain overwrite would silently drop any setting not in that call's payload
+    // (e.g. a saved language when perceptionMode alone changes, or vice versa).
+    loadSettings()
+      .then((current) => chrome.storage.local.set({ [SETTINGS_KEY]: { ...current, ...msg.payload } }))
+      .then(() => {
+        STATE.settings = { ...STATE.settings, ...msg.payload };
+        sendResponse({ ok: true });
+      })
       .catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+  if (msg?.type === MSG.EXECUTE_TEST_ACTION) {
+    // eval/test only (see messages.js) — same dispatchAction() a real step uses, so
+    // the rehydration path under test is the exact one a live task would run.
+    dispatchAction({ tabId: msg.tabId, windowId: msg.windowId }, msg.action)
+      .then(sendResponse)
+      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
     return true;
   }
   return false;
@@ -1703,7 +1977,7 @@ async function privacyPreview({ tabId, mode }) {
   if (!tab?.id) return { ok: false, error: "no active tab" };
   if (!(await ensureContentScript(tab.id))) return { ok: false, error: "cannot access this page" };
   const settings = { ...(await loadSettings()), ...(mode ? { perceptionMode: mode } : {}) };
-  const vault = new Vault();
+  const vault = new Vault(null, { mode: settings.redactionMode });
   const t0 = performance.now();
   const { snapshot, visual, timings } = await perceiveStep({ tabId: tab.id, windowId: tab.windowId, vault, settings, targetCount: 0 });
   if (!snapshot?.ok) return { ok: false, error: snapshot?.error ?? "perception failed" };
@@ -1725,6 +1999,7 @@ async function privacyPreview({ tabId, mode }) {
     boxes: [
       ...snapshot.piiBoxes.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, type: b.type, label: b.label, source: b.source })),
       ...(visual?.faces ?? []).map((f) => ({ ...css(f), type: "FACE", source: f.via })),
+      ...(visual?.ocrBoxes ?? []).map((b) => ({ ...css(b), type: b.type, label: b.label, source: "ocr" })),
     ],
     sensitiveRegions: (visual?.regions ?? []).filter((r) => r.sensitive).map((r) => r.id),
     rois: snapshot.rois,
@@ -1732,6 +2007,8 @@ async function privacyPreview({ tabId, mode }) {
     redactionSummary: snapshot.redactionSummary,
     tokens: vault.catalog(),
     engine: stats,
+    frameCount: snapshot.frameCount ?? 1,
+    unreachableFrames: snapshot.unreachableFrames ?? [],
   };
 }
 

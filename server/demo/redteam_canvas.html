@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>ID verification — DocLocker</title><link rel="stylesheet" href="demo.css"></head>
+<body><header class="top"><b>📄 DocLocker</b></header>
+<main>
+<div class="card">
+  <h2 style="margin-top:0">ID verification widget</h2>
+  <p class="muted">E2 red-team: PII rendered into PIXELS by script (canvas fillText, SVG
+  text) rather than existing as an HTML text node — the DOM-text extractor structurally
+  cannot see it. Only the pixel/OCR path can catch this.</p>
+
+  <canvas id="id-canvas" data-technique="canvas-filltext" width="420" height="90" style="border:1px solid #e4e7ec;border-radius:6px;background:#fff"></canvas>
+
+  <svg data-technique="svg-text" width="420" height="60" style="border:1px solid #e4e7ec;border-radius:6px;background:#fff;margin-top:12px">
+    <text x="12" y="35" font-family="monospace" font-size="20" fill="#1d2433">PAN: BXZPK7734F</text>
+  </svg>
+</div>
+</main>
+<script>
+  const ctx = document.getElementById("id-canvas").getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, 420, 90);
+  ctx.fillStyle = "#1d2433";
+  ctx.font = "20px monospace";
+  ctx.fillText("Aadhaar: 234123412346", 12, 35);
+  ctx.fillText("Name: Ananya Gupta", 12, 65);
+</script>
+</body></html>

@@ -164,6 +164,65 @@ function indianCorpus(n) {
   return out;
 }
 
+// --- corpus C: Hindi / Devanagari (B4) --------------------------------------------------
+const DEV_DIGIT = "०१२३४५६७८९";
+const hiDigits = (n) => Array.from({ length: n }, () => DEV_DIGIT[Math.floor(rnd() * 10)]).join("");
+function hiAadhaar() {
+  for (;;) {
+    const p = String(2 + Math.floor(rnd() * 8)) + digits(10);
+    for (let d = 0; d < 10; d++) {
+      if (verhoeffValid(p + d)) {
+        const g = `${(p + d).slice(0, 4)} ${(p + d).slice(4, 8)} ${(p + d).slice(8)}`;
+        return [...g].map((c) => (c >= "0" && c <= "9" ? DEV_DIGIT[+c] : c)).join("");
+      }
+    }
+  }
+}
+const hiPhone = () => [...pick("6789") + digits(9)].map((c) => DEV_DIGIT[+c]).join("");
+const HI_FIRST = ["रोहन", "विक्रम", "अंजलि", "प्रिया", "सुनीता", "अनिल", "कविता", "राजेश", "मीरा", "दीपक", "नेहा", "अमित", "पूजा", "संदीप", "रेखा", "मोहम्मद", "फरहान", "आयशा", "गुरप्रीत", "हरप्रीत"];
+const HI_LAST = ["शर्मा", "वर्मा", "मेहता", "गुप्ता", "सिंह", "कौर", "अय्यर", "नायर", "रेड्डी", "पटेल", "यादव", "चौहान", "अंसारी", "खान", "जोशी", "देशपांडे"];
+const HI_STREET_WORD = ["गांधी", "नेहरू", "अशोक", "राज"];
+const HI_ADDR_KEYWORDS = ["मार्ग", "नगर", "गली", "कॉलोनी", "सेक्टर"];
+const HI_NEGATIVE_CITY = ["चंडीगढ़", "मुंबई", "दिल्ली"];
+
+function hiT(...parts) {
+  let text = "";
+  const gold = [];
+  for (const p of parts) {
+    if (typeof p === "string") text += p;
+    else {
+      gold.push({ start: text.length, end: text.length + p[1].length, type: p[0] });
+      text += p[1];
+    }
+  }
+  return { text, gold };
+}
+const HI_TEMPLATES = [
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); return hiT("श्री ", ["NAME", `${f} ${l}`], " का आधार नंबर ", ["AADHAAR", hiAadhaar()], " है।"); },
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); return hiT("श्रीमती ", ["NAME", `${f} ${l}`], " ने आवेदन जमा किया।"); },
+  () => hiT("आपका ओटीपी ", ["OTP", hiDigits(6)], " है, किसी के साथ साझा न करें।"),
+  () => hiT("बैंक से भेजा गया ओटीपी: ", ["OTP", hiDigits(6)], "।"),
+  () => { const f = pick(HI_FIRST); return hiT(f, " को कॉल करें: ", ["PHONE", hiPhone()], "।"); },
+  () => hiT("सीवीवी कोड ", ["CVV", hiDigits(3)], " है।"),
+  () => hiT("जन्म तिथि: ", ["DOB", `${1 + Math.floor(rnd() * 27)}/0${1 + Math.floor(rnd() * 9)}/19${70 + Math.floor(rnd() * 29)}`], "।"),
+  () => hiT("पिन कोड ", ["PINCODE", String(1 + Math.floor(rnd() * 8)) + digits(5)], " दर्ज करें।"),
+  () => hiT("मकान नंबर ", String(1 + Math.floor(rnd() * 400)), ", ", ["ADDRESS", `${pick(HI_STREET_WORD)} ${pick(HI_ADDR_KEYWORDS)}, ${pick(["मुंबई", "दिल्ली", "पुणे", "जयपुर"])} ${1 + Math.floor(rnd() * 8)}${digits(5)}`], " पर डिलीवर करें।"),
+  () => { const f = pick(HI_FIRST), l = pick(HI_LAST); return hiT("डॉ. ", ["NAME", `${f} ${l}`], " ", ["LOCATION", pick(HI_NEGATIVE_CITY)], " से आए हैं।"); },
+  () => { const f = pick(HI_FIRST); return hiT("धन्यवाद ", ["NAME", f], "! रिपोर्ट भेज दी गई है।"); },
+  () => hiT("खाता संख्या ", ["BANK_ACCOUNT", digits(12)], " में राशि जमा हुई।"),
+  // hard negatives (no PII) — Devanagari digits in a non-PII context must not fire
+  () => hiT("कुल राशि ₹", digits(1) + ",", digits(3), " है, जिसमें जीएसटी शामिल है।"),
+  () => hiT("पीएनआर ", digits(10), " — ट्रेन ", digits(5), ", कोच बी", String(1 + Math.floor(rnd() * 9)), "।"),
+  () => hiT("चंद्रयान-3 ने 23 अगस्त 2023 को चंद्रमा के दक्षिणी ध्रुव के पास लैंडिंग की।"),
+  () => hiT("यह सेवा सोमवार से शुक्रवार, सुबह 9 बजे से शाम 6 बजे तक उपलब्ध है।"),
+  () => hiT("संस्करण ", `v${1 + Math.floor(rnd() * 9)}.${Math.floor(rnd() * 20)}`, " जारी किया गया।"),
+];
+function hindiCorpus(n) {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(HI_TEMPLATES[i % HI_TEMPLATES.length]());
+  return out;
+}
+
 // --- scoring ---------------------------------------------------------------------
 function covered(a, spans) {
   let c = 0;
@@ -216,6 +275,7 @@ async function evaluate(corpus, withNer) {
 
 const ai4p = await loadAi4privacy();
 const indian = indianCorpus(360);
+const hindi = hindiCorpus(150);
 const report = {
   generatedAt: new Date().toISOString(),
   engine: "rules (regex + Luhn/Verhoeff/GSTIN validators) + BERT-small PII NER INT8 (29 MB)",
@@ -229,6 +289,15 @@ const report = {
     rulesOnly: await evaluate(indian, false),
     rulesPlusNer: await evaluate(indian, true),
   },
+  hindi_devanagari: {
+    // rules only — the shipped NER model is English-trained (BERT-small PII); it
+    // is expected to contribute ~nothing on Devanagari script, so Hindi coverage
+    // is entirely the regex/checksum layer (normalizeDevanagariDigits + the
+    // Hindi-script rules in redact.js). "Done when": recall >= 0.85 @ precision
+    // >= 0.95 on this set, with the English corpora above unaffected.
+    source: `${hindi.length} sentences from ${HI_TEMPLATES.length} templates (${HI_TEMPLATES.length - 5} with PII, 5 hard-negative), Aadhaar/OTP/CVV in Devanagari digits`,
+    rulesOnly: await evaluate(hindi, false),
+  },
 };
 await mkdir("eval/results", { recursive: true });
 await writeFile("eval/results/pii.json", JSON.stringify(report, null, 2));
@@ -237,5 +306,7 @@ show("ai4privacy  rules only", report.ai4privacy_en.rulesOnly);
 show("ai4privacy  rules + NER", report.ai4privacy_en.rulesPlusNer);
 show("indian      rules only", report.indian_synthetic.rulesOnly);
 show("indian      rules + NER", report.indian_synthetic.rulesPlusNer);
+show("hindi       rules only", report.hindi_devanagari.rulesOnly);
 console.log("per type (indian, rules+NER):", JSON.stringify(report.indian_synthetic.rulesPlusNer.perType));
 console.log("per type (ai4privacy, rules+NER):", JSON.stringify(report.ai4privacy_en.rulesPlusNer.perType));
+console.log("per type (hindi, rules only):", JSON.stringify(report.hindi_devanagari.rulesOnly.perType));
