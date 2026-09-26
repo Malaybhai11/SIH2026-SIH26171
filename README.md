@@ -120,4 +120,4 @@ docs/                 architecture, model + API contracts, PRD, plan
 
 Optional multi-window "Comet mode" (parallel sub-agents) is documented in
 [`docs/COMET_MODE.md`](docs/COMET_MODE.md); it is off by default because it multiplies
-client compute.
+client compute
