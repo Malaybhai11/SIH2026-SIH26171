@@ -27,7 +27,7 @@ import {
   humanCheck,
 } from "./lib/humanBehavior.js";
 import { fastDelay, fastClick, fastType, fastScroll, fastHover, fastPressKey, fastSelect, fastCheck } from "./lib/fastActions.js";
-import { isSensitiveDataAllowed, detectSensitiveDataTypes } from "./lib/fieldCompatibility.js";
+import { isSensitiveDataAllowed, detectSensitiveDataTypes, extractFieldMetadata } from "./lib/fieldCompatibility.js";
 
 const HUMAN = { delay: humanDelay, click: humanClick, type: humanType, scroll: (a, o) => humanScroll(a, o), hover: humanHover, pressKey: humanPressKey, select: humanSelect, check: humanCheck };
 const FAST = { delay: fastDelay, click: fastClick, type: fastType, scroll: (a) => fastScroll(a), hover: fastHover, pressKey: fastPressKey, select: fastSelect, check: fastCheck };
@@ -93,23 +93,25 @@ async function handleExtract({ targetCount = 10, collect = false, vault: vaultSt
     const byText = new Map(list.map((t, i) => [t, spans[i] || []]));
     nerTag = async (t) => byText.get(t) ?? [];
   }
-  const opts = { nerTag, vault };
+  const opts = { nerTag, vault, origin: location.origin };
   // image src URLs can embed identifiers (…/users/rahul.verma/avatar.jpg): keep host only
   const nodes = extraction.nodes.map((n) => (n.src ? { ...n, src: safeUrl(n.src) } : n));
   const { nodes: sanitizedDom, log } = await redactNodes(nodes, opts);
 
   const sanitizedToasts = [];
   for (const t of extraction.meta?.toasts ?? []) {
-    const { text, hits } = await redactText(t, opts);
+    const { text, hits } = await redactText(t, { ...opts, provenanceMeta: { sourceOrigin: location.origin, sourceFieldType: "toast" } });
     for (const h of hits) log.push({ type: h.type, value: h.value, elementId: "toast" });
     sanitizedToasts.push(text);
   }
-  const title = (await redactText(document.title || "", opts)).text;
+  const title = (await redactText(document.title || "", { ...opts, provenanceMeta: { sourceOrigin: location.origin, sourceFieldType: "title" } })).text;
 
   // pixel boxes get the SAME token as the text layer ("EMAIL_1") so the redacted
   // screenshot and the DOM payload tell the server one consistent story
   const boxes = pixel.boxes.map((b) => {
-    const tok = b.value && !/_FIELD$|^CARD$/.test(b.type) ? vault.tokenFor(b.type, b.value) : `[${b.type}]`;
+    const tok = b.value && !/_FIELD$|^CARD$/.test(b.type)
+      ? vault.tokenFor(b.type, b.value, { sourceOrigin: location.origin, sourceFieldType: b.source || "screenshot_box" })
+      : `[${b.type}]`;
     return { x: b.x, y: b.y, w: b.w, h: b.h, type: b.type, label: tok.slice(1, -1), source: b.source };
   });
   const redactMs = Math.round(performance.now() - redactT0);
@@ -350,6 +352,26 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   // scan and the capture, the background re-scans instead of trusting stale boxes
   if (msg?.type === MSG.GEOMETRY) {
     sendResponse({ ok: true, scrollX: window.scrollX, scrollY: window.scrollY, w: window.innerWidth, h: window.innerHeight });
+    return false;
+  }
+  if (msg?.type === MSG.GET_FIELD_METADATA) {
+    const origin = window.location.origin;
+    if (msg.targetId) {
+      const el = getElementByAgentId(msg.targetId);
+      const meta = el ? extractFieldMetadata(el) : null;
+      sendResponse({ ok: true, meta, origin });
+      return false;
+    }
+    if (Array.isArray(msg.targetIds)) {
+      const fieldsMeta = {};
+      for (const tid of msg.targetIds) {
+        const el = getElementByAgentId(tid);
+        fieldsMeta[tid] = el ? extractFieldMetadata(el) : null;
+      }
+      sendResponse({ ok: true, fieldsMeta, origin });
+      return false;
+    }
+    sendResponse({ ok: false, error: "no targetId provided", origin });
     return false;
   }
   if (msg?.type === MSG.EXECUTE_ACTION) {

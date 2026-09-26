@@ -17,6 +17,7 @@
 import { MSG } from "./messages.js";
 import { perception, ensureOffscreen } from "./perceptionClient.js";
 import { Vault, detectRuleSpans, applySpans, hasResidualPII, redactText } from "./redact.js";
+import { verifyTokenReleasePolicy } from "./tokenReleasePolicy.js";
 
 async function sendToTab(tabId, msg, timeoutMs = 20000) {
   return Promise.race([
@@ -66,6 +67,7 @@ export async function perceiveStep({ tabId, windowId, vault, settings, targetCou
   vault.map = merged.map;
   vault.values = merged.values;
   vault.counters = merged.counters;
+  vault.provenance = new Map([...vault.provenance, ...merged.provenance]);
   delete snapshot.vault; // never keep a second copy of raw values around
   const pageKey = snapshot.pageKey;
   delete snapshot.pageKey; // engine cache key only
@@ -135,9 +137,15 @@ export function backgroundNerTag(enabled = true) {
 }
 
 /** Tokenise free text that WE send (prompt, titles, memory facts). */
-export async function tokenizeOutgoing(text, vault, nerTag) {
+export async function tokenizeOutgoing(text, vault, nerTag, provenanceMeta = null) {
   if (!text) return text;
-  return (await redactText(text, { vault, nerTag })).text;
+  return (
+    await redactText(text, {
+      vault,
+      nerTag,
+      provenanceMeta: provenanceMeta || { sourceOrigin: "user_prompt", sourceFieldType: "prompt" },
+    })
+  ).text;
 }
 
 /** URL -> origin + tokenised path; query and fragment are dropped (they carry ids/emails/tokens). */
@@ -196,47 +204,126 @@ export function egressGate(body, vault) {
   };
   return { body: walk(body, ""), fixes, where };
 }
-/** Swap tokens in an action for real values, locally, just before execution. */
-
-export function rehydrateAction(action, vault) {
+/**
+ * Swap tokens in an action for real values, locally, just before execution.
+ * Enforces centralized token release policy:
+ * TOKEN RELEASE = valid provenance AND allowed destination origin AND matching destination field
+ *
+ * If ANY security check fails:
+ *   - Real values are NEVER released into action.text/fields.
+ *   - The safe token representation is preserved.
+ *   - a.__securityDecision records { allowed: false, decision: "BLOCK", reason, blockedToken, blockedType }.
+ *
+ * If ALL checks pass (or explicit user override):
+ *   - Real values are safely substituted.
+ *   - a.__securityDecision records { allowed: true, decision: "ALLOW" | "USER_DECISION", reason }.
+ */
+export function rehydrateAction(action, vault, securityContext = {}) {
   const a = { ...action };
 
   const extractTokens = (str) => {
     if (typeof str !== "string") return [];
-    return [...str.matchAll(/\[([A-Z_]+)_\d+\]/g)].map((m) => m[1].replace(/_\d+$/, ""));
+    return [...str.matchAll(/\[([A-Z_]+)_\d+\]/g)].map((m) => ({
+      token: m[0],
+      type: m[1].replace(/_\d+$/, ""),
+    }));
   };
 
   const actionTokens = new Set();
+  const tokenList = [];
+
   for (const key of ["text", "value", "url"]) {
     if (typeof a[key] === "string") {
-      for (const t of extractTokens(a[key])) actionTokens.add(t);
+      for (const t of extractTokens(a[key])) {
+        actionTokens.add(t.type);
+        tokenList.push({ ...t, key, targetId: a.targetId });
+      }
+    }
+  }
+
+  if (Array.isArray(a.fields)) {
+    for (const f of a.fields) {
+      if (typeof f.text === "string") {
+        for (const t of extractTokens(f.text)) {
+          actionTokens.add(t.type);
+          tokenList.push({ ...t, key: "fields", targetId: f.targetId });
+        }
+      }
     }
   }
 
   a.__sensitiveTypes = [...actionTokens];
   a.__b1TokenTypes = [...actionTokens];
 
-  // Check fill_form fields individually
+  // If no sensitive tokens are present in this action, it is non-sensitive and allowed immediately
+  if (tokenList.length === 0) {
+    a.__securityDecision = {
+      allowed: true,
+      decision: "ALLOW",
+      reason: "No sensitive tokens present in action",
+    };
+    return a;
+  }
+
+  // Centralized security verification for each token
+  const destinationOrigin = securityContext.destinationOrigin;
+  const userApproved = !!securityContext.userApproved;
+  const customAllowedOrigins = securityContext.customAllowedOrigins || [];
+
+  for (const item of tokenList) {
+    const targetFieldMeta =
+      item.key === "fields"
+        ? (securityContext.targetFields?.[item.targetId] || securityContext.targetFieldMeta)
+        : (securityContext.targetFieldMeta || securityContext.targetFields?.[item.targetId]);
+
+    const check = verifyTokenReleasePolicy({
+      token: item.token,
+      tokenType: item.type,
+      vault,
+      destinationOrigin,
+      targetFieldMeta,
+      userApproved,
+      customAllowedOrigins,
+    });
+
+    if (!check.allowed) {
+      // Security check failed! BLOCK the release. Real value must NOT be exposed.
+      a.__securityDecision = {
+        allowed: false,
+        decision: "BLOCK",
+        reason: check.reason,
+        blockedToken: item.token,
+        blockedType: item.type,
+        destinationOrigin,
+      };
+      a.__blocked = true;
+      return a;
+    }
+  }
+
+  // ALL checks passed (or explicit user override granted) -> Release the real values
   if (Array.isArray(a.fields)) {
     a.fields = a.fields.map((f) => {
-      const fieldTokens = extractTokens(f.text);
-      for (const t of fieldTokens) actionTokens.add(t);
+      const fieldTokens = extractTokens(f.text).map((t) => t.type);
       return {
         ...f,
         __sensitiveTypes: fieldTokens,
         text: vault.resolve(f.text ?? ""),
       };
     });
-    a.__sensitiveTypes = [...actionTokens];
-    a.__b1TokenTypes = [...actionTokens];
   }
 
-  // Release the real value only after token detection
   for (const k of ["text", "value", "url"]) {
     if (typeof a[k] === "string") {
       a[k] = vault.resolve(a[k]);
     }
   }
+
+  a.__securityDecision = {
+    allowed: true,
+    decision: userApproved ? "USER_DECISION" : "ALLOW",
+    reason: userApproved ? "Authorized via explicit user override" : "All security checks passed",
+  };
 
   return a;
 }

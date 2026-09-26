@@ -433,9 +433,14 @@ async function navAction(sub, action) {
   }
 }
 
-async function dispatchAction(sub, action) {
+async function dispatchAction(sub, action, securityContext = {}) {
   // tokens ([PHONE_1], [NAME_2] ...) become real values only here, on-device
-  action = rehydrateAction(action, VAULT);
+  if (!action.__securityDecision) {
+    action = rehydrateAction(action, VAULT, securityContext);
+  }
+  if (action.__blocked) {
+    return { ok: false, error: action.__securityDecision?.reason || "Blocked by token release policy", privacyBlocked: true };
+  }
   if (NAV_ACTIONS.has(action.type)) return navAction(sub, action);
   return withTimeout(
     chrome.tabs.sendMessage(sub.tabId, { type: MSG.EXECUTE_ACTION, action, humanize: !!STATE.settings?.humanize }),
@@ -890,7 +895,7 @@ async function runSubLoop(sub, ctx) {
 
     // status === "action"
     mergeAccumulated(sub, resp.extracted ?? []);
-    const a = resp.action || {};
+    let a = resp.action || {};
 
     // Memory writes are intercepted here — never dispatched to the content script.
     if (a.type === "remember") {
@@ -1065,8 +1070,100 @@ async function runSubLoop(sub, ctx) {
     // top of the loop — before we actually dispatch the action to the page.
     await waitWhilePaused(sub, ctx);
     if (ctx.isCancelled()) break;
-    sub.status = STATUS.ACTING;
-    await ctx.onUpdate();
+    // Token release security gate: ensure sensitive tokens are verified before rehydration
+    const hasTokens = (act) => {
+      const checkStr = (s) => typeof s === "string" && /\[[A-Z_]+_\d+\]/.test(s);
+      if (checkStr(act.text) || checkStr(act.value) || checkStr(act.url)) return true;
+      if (Array.isArray(act.fields)) return act.fields.some((f) => checkStr(f.text));
+      return false;
+    };
+
+    if (hasTokens(a)) {
+      const currentUrl = await getCurrentUrl(sub.tabId);
+      const destinationOrigin = currentUrl ? new URL(currentUrl).origin : null;
+      let targetFieldMeta = null;
+      let targetFields = null;
+
+      if (a.targetId || Array.isArray(a.fields)) {
+        try {
+          const fieldRes = await chrome.tabs.sendMessage(sub.tabId, {
+            type: MSG.GET_FIELD_METADATA,
+            targetId: a.targetId,
+            targetIds: a.fields?.map((f) => f.targetId),
+          });
+          if (fieldRes?.ok) {
+            targetFieldMeta = fieldRes.meta;
+            targetFields = fieldRes.fieldsMeta;
+          }
+        } catch (e) {
+          /* content script may not be ready or field not found */
+        }
+      }
+
+      let rehydrated = rehydrateAction(a, VAULT, {
+        destinationOrigin,
+        targetFieldMeta,
+        targetFields,
+        userApproved: false,
+      });
+
+      if (rehydrated.__securityDecision && !rehydrated.__securityDecision.allowed) {
+        const dec = rehydrated.__securityDecision;
+        subLog(sub, `Privacy system BLOCKED release of ${dec.blockedToken} (${dec.blockedType}): ${dec.reason}`, "warn");
+
+        while (STATE.pendingConfirmation && !ctx.isCancelled()) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        if (ctx.isCancelled()) break;
+
+        const prevSubStatus = sub.status;
+        const prevStateStatus = STATE.status;
+        STATE.pendingConfirmation = {
+          subId: sub.id,
+          actionType: a.type,
+          targetId: a.targetId ?? null,
+          blockedToken: dec.blockedToken,
+          blockedType: dec.blockedType,
+          destinationOrigin,
+          description: `Privacy System BLOCKED Token Release: Attempted release of ${dec.blockedToken} (${dec.blockedType}) to ${destinationOrigin || "unknown origin"}. Reason: ${dec.reason}. Allow user override?`,
+          resolution: null,
+        };
+        STATE.status = STATUS.AWAITING_CONFIRMATION;
+        sub.status = STATUS.AWAITING_CONFIRMATION;
+        await ctx.onUpdate();
+
+        while (!STATE.pendingConfirmation?.resolution && !ctx.isCancelled()) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        const resolution = ctx.isCancelled() ? "deny" : STATE.pendingConfirmation?.resolution;
+        STATE.pendingConfirmation = null;
+        STATE.status = prevStateStatus;
+        sub.status = prevSubStatus;
+        await ctx.onUpdate();
+
+        if (resolution === "allow") {
+          subLog(sub, `Token release explicitly authorized by user for ${dec.blockedToken}`);
+          a = rehydrateAction(a, VAULT, {
+            destinationOrigin,
+            targetFieldMeta,
+            targetFields,
+            userApproved: true,
+          });
+        } else {
+          subLog(sub, `Token release denied by user. Real sensitive value was NOT released.`, "warn");
+          sub.lastActionResult = {
+            type: a.type,
+            targetId: a.targetId ?? null,
+            ok: false,
+            error: `Privacy Protection: Transfer of ${dec.blockedToken} was blocked by policy and denied by user.`,
+            privacyBlocked: true,
+          };
+          continue;
+        }
+      } else {
+        a = rehydrated;
+      }
+    }
 
     try {
       const actionRes = await dispatchAction(sub, a);

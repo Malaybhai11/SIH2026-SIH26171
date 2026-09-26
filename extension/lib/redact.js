@@ -259,8 +259,9 @@ export class Vault {
     this.map = new Map(state?.map ?? []); // key -> token
     this.values = new Map(state?.values ?? []); // token -> value
     this.counters = { ...(state?.counters ?? {}) };
+    this.provenance = new Map(state?.provenance ?? []); // token -> provenance object
   }
-  tokenFor(type, value) {
+  tokenFor(type, value, provenanceMeta = {}) {
     const key = normKey(type, value);
     let tok = this.map.get(key);
     if (!tok) {
@@ -268,8 +269,39 @@ export class Vault {
       tok = `[${type}_${this.counters[type]}]`;
       this.map.set(key, tok);
       this.values.set(tok, value);
+      this.provenance.set(tok, {
+        tokenId: tok,
+        type: type,
+        sourceOrigin: provenanceMeta.sourceOrigin || provenanceMeta.origin || "user_prompt",
+        sourceFieldType: provenanceMeta.sourceFieldType || provenanceMeta.fieldType || "prompt",
+        timestamp: provenanceMeta.timestamp || Date.now(),
+      });
+    } else if (provenanceMeta && Object.keys(provenanceMeta).length > 0) {
+      const existing = this.provenance.get(tok);
+      if (existing && existing.sourceOrigin === "user_prompt" && provenanceMeta.sourceOrigin && provenanceMeta.sourceOrigin !== "user_prompt") {
+        existing.sourceOrigin = provenanceMeta.sourceOrigin;
+        if (provenanceMeta.sourceFieldType) existing.sourceFieldType = provenanceMeta.sourceFieldType;
+      }
     }
     return tok;
+  }
+  getProvenance(token) {
+    return this.provenance.get(token) || null;
+  }
+  hasValidProvenance(token) {
+    const p = this.provenance.get(token);
+    return !!(p && p.tokenId === token && p.type);
+  }
+  setProvenance(token, meta = {}) {
+    if (!this.values.has(token)) return false;
+    this.provenance.set(token, {
+      tokenId: token,
+      type: meta.type || token.slice(1, token.lastIndexOf("_")),
+      sourceOrigin: meta.sourceOrigin || meta.origin || "user_prompt",
+      sourceFieldType: meta.sourceFieldType || meta.fieldType || "prompt",
+      timestamp: meta.timestamp || Date.now(),
+    });
+    return true;
   }
   /** Replace every known token in `s` with its real value (client-side, at execution). */
   resolve(s) {
@@ -294,21 +326,21 @@ export class Vault {
     return [...this.values.keys()].map((t) => ({ token: t, type: t.slice(1, t.lastIndexOf("_")) }));
   }
   toJSON() {
-    return { map: [...this.map], values: [...this.values], counters: this.counters };
+    return { map: [...this.map], values: [...this.values], counters: this.counters, provenance: [...this.provenance] };
   }
 }
 
 // --- application --------------------------------------------------------------------
 
-function tokenFor(span, vault) {
-  if (vault) return vault.tokenFor(span.type, span.value);
+function tokenFor(span, vault, provenanceMeta) {
+  if (vault) return vault.tokenFor(span.type, span.value, provenanceMeta);
   return TOKENS[COARSE[span.type] ?? "ID"];
 }
 
 /** Replace spans (non-overlapping, any order) with tokens. */
-export function applySpans(text, spans, vault) {
+export function applySpans(text, spans, vault, provenanceMeta) {
   // assign tokens in reading order (so numbering reads naturally), splice right-to-left
-  const toks = [...spans].sort((a, b) => a.start - b.start).map((s) => [s, tokenFor(s, vault)]);
+  const toks = [...spans].sort((a, b) => a.start - b.start).map((s) => [s, tokenFor(s, vault, provenanceMeta)]);
   let out = text;
   for (let i = toks.length - 1; i >= 0; i--) {
     const [s, tok] = toks[i];
@@ -394,7 +426,7 @@ export async function redactText(input, opts = {}) {
   if (!input || typeof input !== "string") return { text: input ?? "", hits: [] };
   const spans = await detectSpans(input, { ...opts, known: opts.known ?? opts.vault?.known() });
   return {
-    text: applySpans(input, spans, opts.vault),
+    text: applySpans(input, spans, opts.vault, opts.provenanceMeta),
     hits: spans.map((s) => ({ type: opts.vault ? s.type : COARSE[s.type], fine: s.type, value: s.value, start: s.start, end: s.end, source: s.source })),
   };
 }
@@ -408,10 +440,15 @@ export async function redactNodes(nodes, opts = {}) {
   const out = [];
   for (const node of nodes) {
     const copy = { ...node };
+    const nodeMeta = {
+      sourceOrigin: opts.origin || (typeof location !== "undefined" ? location.origin : "webpage"),
+      sourceFieldType: copy.role || "dom_node",
+      ...(opts.provenanceMeta || {}),
+    };
     for (const field of ["text", "author", "label", "value", "placeholder"]) {
       const original = copy[field];
       if (!original || typeof original !== "string") continue;
-      const { text, hits } = await redactText(original, opts);
+      const { text, hits } = await redactText(original, { ...opts, provenanceMeta: nodeMeta });
       for (const h of hits) log.push({ type: h.type, fine: h.fine, value: h.value, elementId: node.id, source: h.source });
       copy[field] = text;
     }
