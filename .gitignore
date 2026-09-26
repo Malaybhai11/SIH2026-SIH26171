@@ -34,8 +34,11 @@ venv/
 .vscode/
 *.swp
 
-# server audit logs (demo evidence, regenerated)
-/server/audit/
+# server audit logs (demo evidence, regenerated) — not the store.py module that writes them
+/server/audit/*.jsonl
+/server/audit/*.jsonl.*
+/server/audit/*.jpg
+/server/audit/__pycache__/
 
 # deck renders
 /docs/deck/*.jpg

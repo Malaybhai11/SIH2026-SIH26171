@@ -1,26 +1,40 @@
 {
   "task": "social",
   "prompt": "Summarise in two sentences what people are posting about on this feed.",
-  "status": "DONE",
-  "answer": "People are sharing a mix of updates: one user praised a PSLV launch stream and invited a viewing session, another posted vacation photos of backwaters, a third announced hiring React developers for a startup, and a fourth discussed personal budgeting. Overall, the feed features event enthusiasm, travel highlights, job opportunities, and financial planning.",
+  "status": "AWAITING_CONFIRMATION",
+  "answer": null,
   "error": null,
-  "passed": true,
+  "passed": false,
   "outcome": null,
-  "wallMs": 6071,
+  "wallMs": 240704,
   "steps": [
     {
       "iteration": 1,
-      "domMs": 17,
-      "textPiiMs": 826,
-      "tokenizeMs": 175,
-      "visionMs": 2251,
-      "facesMs": 440,
-      "clipMs": 1708,
-      "paintMs": 175,
-      "perceptionMs": 3694,
+      "domMs": 8,
+      "textPiiMs": 390,
+      "tokenizeMs": 62,
+      "visionMs": 584,
+      "facesMs": 176,
+      "clipMs": 308,
+      "paintMs": 62,
+      "perceptionMs": 1186,
       "cacheHit": false,
-      "serverMs": 1734,
-      "totalMs": 5560
+      "serverMs": 59592,
+      "totalMs": 60821
+    },
+    {
+      "iteration": 2,
+      "domMs": 1,
+      "textPiiMs": 3,
+      "tokenizeMs": 29,
+      "visionMs": 23,
+      "facesMs": null,
+      "clipMs": null,
+      "paintMs": 29,
+      "perceptionMs": 108,
+      "cacheHit": true,
+      "serverMs": 6923,
+      "totalMs": 7056
     }
   ],
   "serverSaw": {
@@ -75,19 +89,19 @@
       "screen": {
         "state": "profile_page",
         "category": "social",
-        "confidence": 0.772,
+        "confidence": 0.564,
         "probs": [
           {
             "id": "profile_page",
-            "p": 0.772
+            "p": 0.564
           },
           {
             "id": "code_repo",
-            "p": 0.149
+            "p": 0.267
           },
           {
             "id": "kyc_identity",
-            "p": 0.044
+            "p": 0.094
           }
         ],
         "pixelsOnly": "profile_page",
@@ -132,74 +146,78 @@
   "leakCheck": {
     "secretsChecked": 6,
     "leaked": [],
-    "requestsInspected": 1
+    "requestsInspected": 2
   },
   "privacy": {
     "gateFixes": 0,
-    "boxesPainted": 22,
+    "boxesPainted": 44,
     "tokens": 11,
-    "bytesSent": 80061
+    "bytesSent": 168529,
+    "tokenReleaseBlocks": 1
   },
   "engine": {
     "ep": "wasm",
     "models": {
       "face": {
         "bytes": 232589,
-        "loadMs": 1407,
+        "loadMs": 621,
         "ep": "wasm"
       },
       "clip": {
         "bytes": 22876479,
-        "loadMs": 2268,
+        "loadMs": 886,
         "ep": "wasm"
       },
       "ner": {
         "bytes": 28748527,
-        "loadMs": 2806,
+        "loadMs": 1075,
         "ep": "wasm"
       }
     },
     "calls": {
       "ner": {
         "n": 5,
-        "totalMs": 1373.6500000357628,
-        "lastMs": 31
+        "totalMs": 1658.6550000007264,
+        "lastMs": 7
       },
       "faces": {
         "n": 1,
-        "totalMs": 438.7399999946356,
-        "lastMs": 439
+        "totalMs": 175.38499999977648,
+        "lastMs": 175
       },
       "clip": {
         "n": 1,
-        "totalMs": 1708.4200000017881,
-        "lastMs": 1708
+        "totalMs": 308.19499999983236,
+        "lastMs": 308
       },
       "redact": {
-        "n": 1,
-        "totalMs": 155.27500000596046,
-        "lastMs": 155
+        "n": 2,
+        "totalMs": 60.89500000001863,
+        "lastMs": 25
       }
     },
     "cache": {
-      "frame": 0,
+      "frame": 1,
       "region": 0,
-      "ner": 9
+      "ner": 38
     },
     "threads": 4,
     "lastNerStrings": 1,
     "lastClipBatch": 1,
     "modelMB": 51.9,
     "memory": {
-      "jsHeapUsedMB": 58,
-      "jsHeapTotalMB": 63
+      "jsHeapUsedMB": 5.6,
+      "jsHeapTotalMB": 6.9
     }
   },
   "log": [
     "task \"Summarise in two sentences what people are posting about on this feed.\" on http://localhost:8000/demo/social.html (target=n/a, localOnly=false, multiAgent=false)",
     "plan: 1 subtask(s) — single-agent mode",
     "--- iteration 1/12 ---",
-    "redacted 11 text span(s); painted 22 box(es) [text 12, fields 0, faces 5, images 5]; screen=profile_page (0.772); ep=wasm; perception 3694ms",
-    "done: Summarized the content of each post into two concise sentences."
+    "redacted 11 text span(s); painted 22 box(es) [text 12, fields 0, faces 5, images 5]; screen=profile_page (0.564); ep=wasm; perception 1186ms",
+    "server → click n_0003 ",
+    "--- iteration 2/12 ---",
+    "redacted 11 text span(s); painted 22 box(es) [text 12, fields 0, faces 5, images 5]; screen=profile_page (0.564); ep=wasm (frame cache hit); perception 108ms",
+    "awaiting confirmation (token_release): release EMAIL (EMAIL token does not belong in a \"unknown\" field) via type"
   ]
 }

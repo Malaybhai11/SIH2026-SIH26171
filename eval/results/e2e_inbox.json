@@ -1,26 +1,26 @@
 {
   "task": "inbox",
   "prompt": "What is the OTP that Bharat Digital Bank sent me?",
-  "status": "DONE",
-  "answer": "The OTP is 482913.",
+  "status": "AWAITING_CONFIRMATION",
+  "answer": null,
   "error": null,
-  "passed": true,
+  "passed": false,
   "outcome": null,
-  "wallMs": 5787,
+  "wallMs": 240034,
   "steps": [
     {
       "iteration": 1,
-      "domMs": 25,
-      "textPiiMs": 852,
-      "tokenizeMs": 147,
-      "visionMs": 2049,
-      "facesMs": 477,
-      "clipMs": 1468,
-      "paintMs": 147,
-      "perceptionMs": 3376,
+      "domMs": 7,
+      "textPiiMs": 459,
+      "tokenizeMs": 58,
+      "visionMs": 580,
+      "facesMs": 142,
+      "clipMs": 406,
+      "paintMs": 58,
+      "perceptionMs": 1240,
       "cacheHit": false,
-      "serverMs": 1285,
-      "totalMs": 4793
+      "serverMs": 60025,
+      "totalMs": 61316
     }
   ],
   "serverSaw": {
@@ -71,22 +71,22 @@
       "screen": {
         "state": "email_inbox",
         "category": "social",
-        "confidence": 0.763,
+        "confidence": 0.477,
         "probs": [
           {
             "id": "email_inbox",
-            "p": 0.763
+            "p": 0.477
           },
           {
-            "id": "signup_form",
-            "p": 0.064
+            "id": "kyc_identity",
+            "p": 0.332
           },
           {
             "id": "search_results",
-            "p": 0.036
+            "p": 0.053
           }
         ],
-        "pixelsOnly": "signup_form",
+        "pixelsOnly": "kyc_identity",
         "cues": [
           "login",
           "email_inbox"
@@ -127,47 +127,48 @@
     "gateFixes": 1,
     "boxesPainted": 15,
     "tokens": 10,
-    "bytesSent": 80113
+    "bytesSent": 88192,
+    "tokenReleaseBlocks": 1
   },
   "engine": {
     "ep": "wasm",
     "models": {
       "face": {
         "bytes": 232589,
-        "loadMs": 2960,
+        "loadMs": 626,
         "ep": "wasm"
       },
       "clip": {
         "bytes": 22876479,
-        "loadMs": 2956,
+        "loadMs": 1145,
         "ep": "wasm"
       },
       "ner": {
         "bytes": 28748527,
-        "loadMs": 2956,
+        "loadMs": 1373,
         "ep": "wasm"
       }
     },
     "calls": {
       "ner": {
         "n": 5,
-        "totalMs": 1291.7800000309944,
-        "lastMs": 34
+        "totalMs": 1983.7750000001397,
+        "lastMs": 8
       },
       "faces": {
         "n": 1,
-        "totalMs": 475.01500000059605,
-        "lastMs": 475
+        "totalMs": 141.94999999995343,
+        "lastMs": 142
       },
       "clip": {
         "n": 1,
-        "totalMs": 1468.1650000065565,
-        "lastMs": 1468
+        "totalMs": 406.2050000000745,
+        "lastMs": 406
       },
       "redact": {
         "n": 1,
-        "totalMs": 124.85499998927116,
-        "lastMs": 125
+        "totalMs": 51.424999999813735,
+        "lastMs": 51
       }
     },
     "cache": {
@@ -180,16 +181,16 @@
     "lastClipBatch": 1,
     "modelMB": 51.9,
     "memory": {
-      "jsHeapUsedMB": 71.9,
-      "jsHeapTotalMB": 77.3
+      "jsHeapUsedMB": 6.2,
+      "jsHeapTotalMB": 6.6
     }
   },
   "log": [
     "task \"What is the OTP that Bharat Digital Bank sent me?\" on http://localhost:8000/demo/inbox.html (target=n/a, localOnly=false, multiAgent=false)",
     "plan: 1 subtask(s) — single-agent mode",
     "--- iteration 1/12 ---",
-    "redacted 9 text span(s); painted 15 box(es) [text 9, fields 0, faces 3, images 3]; screen=email_inbox (0.763); ep=wasm; perception 3376ms",
+    "redacted 9 text span(s); painted 15 box(es) [text 9, fields 0, faces 3, images 3]; screen=email_inbox (0.477); ep=wasm; perception 1240ms",
     "egress gate rewrote 1 string(s) that still held PII: sanitizedDom[0].text",
-    "done: The email from Bharat Digital Bank contains the OTP token [OTP_1]."
+    "awaiting confirmation (token_release): release EMAIL (EMAIL token does not belong in a \"unknown\" field) via type"
   ]
 }

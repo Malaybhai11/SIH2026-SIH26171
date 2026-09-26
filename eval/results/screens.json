@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-24T18:21:05.885Z",
-  "protocol": "leave-domain-out 5-fold CV, 217 screens from 96 sites, 10 categories",
+  "generatedAt": "2026-09-25T19:32:26.707Z",
+  "protocol": "leave-domain-out 5-fold CV, 235 screens from 115 sites, 10 categories",
   "categories": [
     "auth",
     "form",
@@ -14,127 +14,138 @@
     "error"
   ],
   "accuracy": {
-    "zeroShotClip": 0.558,
-    "clipPlusDomPriors": 0.733,
-    "linearHeadClip": 0.581,
-    "linearHeadClipPlusDom": 0.512
+    "zeroShotClip": 0.391,
+    "clipPlusDomPriors": 0.54,
+    "linearHeadClip": 0.447,
+    "linearHeadClipPlusDom": 0.485
   },
   "shipped": "clipPlusDomPriors (best under leave-domain-out; the linear head needs more site diversity)",
   "perClass_shipped": {
     "auth": {
-      "n": 33,
-      "acc": 0.73
+      "n": 32,
+      "acc": 0.47
     },
     "form": {
       "n": 15,
-      "acc": 0.6
+      "acc": 0.67
     },
     "search": {
       "n": 20,
-      "acc": 0.7
+      "acc": 0.65
     },
     "reading": {
-      "n": 31,
-      "acc": 0.58
+      "n": 39,
+      "acc": 0.38
     },
     "listing": {
-      "n": 19,
-      "acc": 0.79
+      "n": 22,
+      "acc": 0.59
     },
     "social": {
-      "n": 27,
-      "acc": 0.63
+      "n": 26,
+      "acc": 0.58
     },
     "code": {
       "n": 18,
-      "acc": 0.89
+      "acc": 0.28
     },
     "media": {
       "n": 20,
-      "acc": 0.9
+      "acc": 0.3
     },
     "data": {
-      "n": 8,
-      "acc": 0.75
+      "n": 11,
+      "acc": 0.82
     },
     "error": {
-      "n": 26,
-      "acc": 0.85
+      "n": 32,
+      "acc": 0.81
     }
   },
   "confusions_shipped": {
-    "reading->code": 5,
-    "auth->error": 4,
-    "search->code": 4,
-    "social->code": 4,
-    "social->search": 4,
-    "reading->data": 3,
-    "auth->form": 2,
-    "auth->social": 2,
+    "media->error": 12,
+    "code->social": 10,
+    "auth->error": 8,
+    "social->search": 7,
+    "reading->form": 6,
+    "reading->data": 5,
+    "listing->error": 5,
+    "auth->social": 4,
+    "reading->social": 4,
+    "reading->code": 4,
+    "search->error": 3,
+    "reading->search": 3,
+    "auth->data": 2,
     "form->error": 2,
     "form->auth": 2,
-    "reading->form": 2,
-    "reading->social": 2,
-    "listing->error": 2,
-    "code->social": 2,
-    "media->social": 2,
+    "search->social": 2,
+    "code->search": 2,
+    "error->media": 2,
+    "data->form": 2,
     "error->auth": 1,
-    "auth->data": 1,
+    "auth->form": 1,
+    "auth->media": 1,
+    "auth->reading": 1,
     "form->social": 1,
     "error->reading": 1,
-    "form->data": 1,
-    "search->social": 1,
-    "search->reading": 1,
-    "reading->search": 1,
-    "listing->search": 1,
+    "search->media": 1,
+    "search->code": 1,
+    "reading->error": 1,
+    "listing->form": 1,
     "listing->social": 1,
-    "data->error": 1,
-    "error->code": 1,
-    "data->form": 1,
-    "error->media": 1,
+    "code->data": 1,
+    "media->social": 1,
+    "media->auth": 1,
+    "error->listing": 1,
+    "social->code": 1,
     "social->form": 1,
-    "social->media": 1
+    "social->error": 1,
+    "social->auth": 1,
+    "reading->auth": 1,
+    "listing->auth": 1,
+    "listing->data": 1,
+    "error->social": 1
   },
   "perClass_linearHeadClipPlusDom": {
     "auth": {
-      "n": 33,
-      "acc": 0.79
+      "n": 32,
+      "acc": 0.59
     },
     "form": {
       "n": 15,
-      "acc": 0.53
+      "acc": 0.6
     },
     "search": {
       "n": 20,
-      "acc": 0.75
+      "acc": 0.45
     },
     "reading": {
-      "n": 31,
-      "acc": 0.1
+      "n": 39,
+      "acc": 0.44
     },
     "listing": {
-      "n": 19,
-      "acc": 1
+      "n": 22,
+      "acc": 0.73
     },
     "social": {
-      "n": 27,
-      "acc": 0.15
+      "n": 26,
+      "acc": 0.46
     },
     "code": {
       "n": 18,
-      "acc": 0
+      "acc": 0.5
     },
     "media": {
       "n": 20,
-      "acc": 0.6
+      "acc": 0
     },
     "data": {
-      "n": 8,
-      "acc": 0.38
+      "n": 11,
+      "acc": 0.82
     },
     "error": {
-      "n": 26,
-      "acc": 0.81
+      "n": 32,
+      "acc": 0.44
     }
   },
   "errors_shipped": [
@@ -151,9 +162,33 @@
       "url": "https://stackoverflow.com/users/login"
     },
     {
+      "id": "003",
+      "label": "login",
+      "pred": "data",
+      "url": "https://www.reddit.com/login/"
+    },
+    {
+      "id": "004",
+      "label": "login",
+      "pred": "media",
+      "url": "https://discord.com/login"
+    },
+    {
+      "id": "005",
+      "label": "login",
+      "pred": "error",
+      "url": "https://www.dropbox.com/login"
+    },
+    {
+      "id": "006",
+      "label": "login",
+      "pred": "social",
+      "url": "https://id.atlassian.com/login"
+    },
+    {
       "id": "008",
       "label": "login",
-      "pred": "form",
+      "pred": "reading",
       "url": "https://www.instagram.com/accounts/login/"
     },
     {
@@ -165,7 +200,7 @@
     {
       "id": "011",
       "label": "login",
-      "pred": "social",
+      "pred": "error",
       "url": "https://www.canva.com/login"
     },
     {
@@ -175,10 +210,40 @@
       "url": "https://trello.com/login"
     },
     {
-      "id": "019",
+      "id": "014",
       "label": "login",
-      "pred": "data",
-      "url": "https://www.hackerrank.com/auth/login"
+      "pred": "social",
+      "url": "https://login.yahoo.com/"
+    },
+    {
+      "id": "020",
+      "label": "login",
+      "pred": "error",
+      "url": "https://leetcode.com/accounts/login/"
+    },
+    {
+      "id": "021",
+      "label": "login",
+      "pred": "social",
+      "url": "https://www.coursera.org/?authMode=login"
+    },
+    {
+      "id": "022",
+      "label": "login",
+      "pred": "error",
+      "url": "https://www.udemy.com/join/login-popup/"
+    },
+    {
+      "id": "023",
+      "label": "login",
+      "pred": "error",
+      "url": "https://www.quora.com/"
+    },
+    {
+      "id": "024",
+      "label": "login",
+      "pred": "error",
+      "url": "https://auth.openai.com/log-in"
     },
     {
       "id": "029",
@@ -205,12 +270,6 @@
       "url": "https://signup.heroku.com/"
     },
     {
-      "id": "035",
-      "label": "signup_form",
-      "pred": "auth",
-      "url": "https://www.twitch.tv/signup"
-    },
-    {
       "id": "036",
       "label": "signup_form",
       "pred": "auth",
@@ -219,7 +278,7 @@
     {
       "id": "038",
       "label": "signup_form",
-      "pred": "data",
+      "pred": "auth",
       "url": "https://www.hackerrank.com/auth/signup"
     },
     {
@@ -229,16 +288,28 @@
       "url": "https://leetcode.com/accounts/signup/"
     },
     {
-      "id": "058",
+      "id": "049",
       "label": "search_results",
       "pred": "social",
-      "url": "https://search.brave.com/search?q=isro"
+      "url": "https://html.duckduckgo.com/html/?q=isro"
     },
     {
-      "id": "060",
+      "id": "052",
       "label": "search_results",
-      "pred": "reading",
-      "url": "https://search.brave.com/search?q=navic%20gps"
+      "pred": "social",
+      "url": "https://html.duckduckgo.com/html/?q=satellite%20imagery"
+    },
+    {
+      "id": "053",
+      "label": "search_results",
+      "pred": "media",
+      "url": "https://html.duckduckgo.com/html/?q=gaganyaan"
+    },
+    {
+      "id": "058",
+      "label": "search_results",
+      "pred": "error",
+      "url": "https://search.brave.com/search?q=isro"
     },
     {
       "id": "065",
@@ -247,39 +318,27 @@
       "url": "https://github.com/search?q=webgpu&type=repositories"
     },
     {
-      "id": "066",
-      "label": "search_results",
-      "pred": "code",
-      "url": "https://github.com/search?q=onnx%20runtime&type=repositories"
-    },
-    {
       "id": "067",
       "label": "search_results",
-      "pred": "code",
+      "pred": "error",
       "url": "https://www.ecosia.org/search?q=isro"
     },
     {
       "id": "068",
       "label": "search_results",
-      "pred": "code",
+      "pred": "error",
       "url": "https://www.ecosia.org/search?q=chandrayaan%203"
     },
     {
       "id": "077",
       "label": "article",
-      "pred": "form",
-      "url": "https://en.wikipedia.org/wiki/Special:Random"
-    },
-    {
-      "id": "078",
-      "label": "article",
-      "pred": "data",
+      "pred": "social",
       "url": "https://en.wikipedia.org/wiki/Special:Random"
     },
     {
       "id": "079",
       "label": "article",
-      "pred": "data",
+      "pred": "search",
       "url": "https://en.wikipedia.org/wiki/Special:Random"
     },
     {
@@ -289,9 +348,21 @@
       "url": "https://en.wikipedia.org/wiki/Special:Random"
     },
     {
-      "id": "084",
+      "id": "082",
       "label": "article",
       "pred": "search",
+      "url": "https://en.wikipedia.org/wiki/Indian_Space_Research_Organisation"
+    },
+    {
+      "id": "083",
+      "label": "article",
+      "pred": "search",
+      "url": "https://en.wikipedia.org/wiki/Aryabhata_(satellite)"
+    },
+    {
+      "id": "084",
+      "label": "article",
+      "pred": "social",
       "url": "https://en.wikipedia.org/wiki/Vikram_Sarabhai"
     },
     {
@@ -331,16 +402,16 @@
       "url": "https://www.gutenberg.org/files/1342/1342-h/1342-h.htm"
     },
     {
-      "id": "093",
+      "id": "092",
       "label": "article",
-      "pred": "code",
-      "url": "https://go.dev/doc/effective_go"
+      "pred": "error",
+      "url": "https://www.britannica.com/topic/Indian-Space-Research-Organisation"
     },
     {
-      "id": "096",
-      "label": "product_listing",
-      "pred": "error",
-      "url": "https://www.ebay.com/sch/i.html?_nkw=headphones"
+      "id": "093",
+      "label": "article",
+      "pred": "data",
+      "url": "https://go.dev/doc/effective_go"
     },
     {
       "id": "097",
@@ -349,10 +420,28 @@
       "url": "https://www.ebay.com/sch/i.html?_nkw=laptop"
     },
     {
-      "id": "103",
+      "id": "099",
       "label": "product_listing",
-      "pred": "search",
-      "url": "https://www.flipkart.com/search?q=television"
+      "pred": "form",
+      "url": "https://www.ebay.com/sch/i.html?_nkw=cricket%20bat"
+    },
+    {
+      "id": "105",
+      "label": "product_listing",
+      "pred": "error",
+      "url": "https://www.snapdeal.com/search?keyword=shoes"
+    },
+    {
+      "id": "106",
+      "label": "product_listing",
+      "pred": "error",
+      "url": "https://www.snapdeal.com/search?keyword=backpack"
+    },
+    {
+      "id": "107",
+      "label": "product_listing",
+      "pred": "error",
+      "url": "https://www.snapdeal.com/search?keyword=mixer%20grinder"
     },
     {
       "id": "111",
@@ -361,16 +450,154 @@
       "url": "https://www.ikea.com/in/en/cat/chairs-fu002/"
     },
     {
+      "id": "118",
+      "label": "code_repo",
+      "pred": "social",
+      "url": "https://github.com/microsoft/onnxruntime"
+    },
+    {
+      "id": "119",
+      "label": "code_repo",
+      "pred": "search",
+      "url": "https://github.com/huggingface/transformers.js"
+    },
+    {
+      "id": "120",
+      "label": "code_repo",
+      "pred": "social",
+      "url": "https://github.com/opencv/opencv"
+    },
+    {
+      "id": "121",
+      "label": "code_repo",
+      "pred": "social",
+      "url": "https://github.com/onnx/onnx"
+    },
+    {
       "id": "122",
       "label": "code_repo",
       "pred": "social",
       "url": "https://github.com/facebook/react"
     },
     {
+      "id": "123",
+      "label": "code_repo",
+      "pred": "social",
+      "url": "https://github.com/python/cpython"
+    },
+    {
+      "id": "124",
+      "label": "code_repo",
+      "pred": "social",
+      "url": "https://github.com/rust-lang/rust"
+    },
+    {
+      "id": "125",
+      "label": "code_repo",
+      "pred": "social",
+      "url": "https://github.com/tensorflow/tfjs"
+    },
+    {
+      "id": "126",
+      "label": "code_repo",
+      "pred": "search",
+      "url": "https://github.com/ggerganov/llama.cpp"
+    },
+    {
+      "id": "127",
+      "label": "code_repo",
+      "pred": "social",
+      "url": "https://github.com/denoland/deno"
+    },
+    {
       "id": "133",
       "label": "code_repo",
       "pred": "social",
       "url": "https://gitlab.com/inkscape/inkscape"
+    },
+    {
+      "id": "134",
+      "label": "code_repo",
+      "pred": "data",
+      "url": "https://codeberg.org/forgejo/forgejo"
+    },
+    {
+      "id": "135",
+      "label": "code_repo",
+      "pred": "social",
+      "url": "https://git.sr.ht/~sircmpwn/scdoc/tree"
+    },
+    {
+      "id": "136",
+      "label": "video",
+      "pred": "error",
+      "url": "https://vimeo.com/76979871"
+    },
+    {
+      "id": "137",
+      "label": "video",
+      "pred": "error",
+      "url": "https://vimeo.com/1084537"
+    },
+    {
+      "id": "138",
+      "label": "video",
+      "pred": "error",
+      "url": "https://vimeo.com/22439234"
+    },
+    {
+      "id": "144",
+      "label": "video",
+      "pred": "error",
+      "url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+    },
+    {
+      "id": "148",
+      "label": "map",
+      "pred": "error",
+      "url": "https://www.openstreetmap.org/#map=12/23.02/72.57"
+    },
+    {
+      "id": "149",
+      "label": "map",
+      "pred": "error",
+      "url": "https://www.openstreetmap.org/#map=12/12.97/77.59"
+    },
+    {
+      "id": "150",
+      "label": "map",
+      "pred": "error",
+      "url": "https://www.openstreetmap.org/#map=12/28.61/77.2"
+    },
+    {
+      "id": "151",
+      "label": "map",
+      "pred": "error",
+      "url": "https://www.openstreetmap.org/#map=12/19.07/72.87"
+    },
+    {
+      "id": "152",
+      "label": "map",
+      "pred": "error",
+      "url": "https://www.openstreetmap.org/#map=12/13.08/80.27"
+    },
+    {
+      "id": "153",
+      "label": "map",
+      "pred": "error",
+      "url": "https://www.openstreetmap.org/#map=12/22.57/88.36"
+    },
+    {
+      "id": "154",
+      "label": "map",
+      "pred": "error",
+      "url": "https://www.openstreetmap.org/#map=12/48.85/2.35"
+    },
+    {
+      "id": "155",
+      "label": "map",
+      "pred": "error",
+      "url": "https://www.openstreetmap.org/#map=12/40.71/-74"
     },
     {
       "id": "158",
@@ -381,20 +608,20 @@
     {
       "id": "159",
       "label": "map",
-      "pred": "social",
+      "pred": "auth",
       "url": "https://wego.here.com/?map=12.97,77.59,12"
-    },
-    {
-      "id": "163",
-      "label": "dashboard_table",
-      "pred": "error",
-      "url": "https://coinmarketcap.com/"
     },
     {
       "id": "167",
       "label": "error_captcha",
-      "pred": "code",
+      "pred": "media",
       "url": "https://play.grafana.org/d/000000012/grafana-play-home"
+    },
+    {
+      "id": "168",
+      "label": "dashboard_table",
+      "pred": "form",
+      "url": "https://finance.yahoo.com/markets/stocks/most-active/"
     },
     {
       "id": "171",
@@ -409,15 +636,27 @@
       "url": "https://www.w3schools.com/html/html_tables.asp"
     },
     {
+      "id": "182",
+      "label": "error_captcha",
+      "pred": "listing",
+      "url": "https://www.ikea.com/in/en/nope-26171"
+    },
+    {
       "id": "185",
       "label": "error_captcha",
       "pred": "media",
       "url": "https://www.nasa.gov/nope-26171"
     },
     {
+      "id": "196",
+      "label": "profile_page",
+      "pred": "search",
+      "url": "https://github.com/torvalds"
+    },
+    {
       "id": "198",
       "label": "profile_page",
-      "pred": "code",
+      "pred": "search",
       "url": "https://github.com/xenova"
     },
     {
@@ -429,14 +668,8 @@
     {
       "id": "203",
       "label": "profile_page",
-      "pred": "code",
-      "url": "https://huggingface.co/apple"
-    },
-    {
-      "id": "206",
-      "label": "profile_page",
       "pred": "form",
-      "url": "https://dev.to/ben"
+      "url": "https://huggingface.co/apple"
     },
     {
       "id": "209",
@@ -451,9 +684,15 @@
       "url": "https://news.ycombinator.com/newest"
     },
     {
+      "id": "211",
+      "label": "social_feed",
+      "pred": "search",
+      "url": "https://news.ycombinator.com/show"
+    },
+    {
       "id": "212",
       "label": "social_feed",
-      "pred": "code",
+      "pred": "search",
       "url": "https://lobste.rs/"
     },
     {
@@ -463,28 +702,100 @@
       "url": "https://lobste.rs/newest"
     },
     {
-      "id": "217",
-      "label": "login",
-      "pred": "error",
-      "url": "https://old.reddit.com/r/space/"
-    },
-    {
       "id": "218",
       "label": "login",
-      "pred": "error",
+      "pred": "data",
       "url": "https://old.reddit.com/r/ISRO/"
-    },
-    {
-      "id": "219",
-      "label": "social_feed",
-      "pred": "media",
-      "url": "https://dev.to/"
     },
     {
       "id": "221",
       "label": "social_feed",
-      "pred": "search",
+      "pred": "error",
       "url": "https://tildes.net/"
+    },
+    {
+      "id": "225",
+      "label": "email_inbox",
+      "pred": "auth",
+      "url": "https://www.mailinator.com/v4/public/inboxes.jsp?to=demo"
+    },
+    {
+      "id": "230",
+      "label": "article",
+      "pred": "form",
+      "url": "https://parivahan.gov.in/parivahan/"
+    },
+    {
+      "id": "231",
+      "label": "article",
+      "pred": "form",
+      "url": "https://www.india.gov.in/"
+    },
+    {
+      "id": "232",
+      "label": "article",
+      "pred": "form",
+      "url": "https://www.mygov.in/"
+    },
+    {
+      "id": "233",
+      "label": "article",
+      "pred": "form",
+      "url": "https://digilocker.gov.in/"
+    },
+    {
+      "id": "234",
+      "label": "article",
+      "pred": "form",
+      "url": "https://www.incometax.gov.in/iec/foportal/"
+    },
+    {
+      "id": "238",
+      "label": "article",
+      "pred": "data",
+      "url": "https://www.onlinesbi.sbi/"
+    },
+    {
+      "id": "239",
+      "label": "article",
+      "pred": "data",
+      "url": "https://www.icicibank.com/"
+    },
+    {
+      "id": "240",
+      "label": "article",
+      "pred": "data",
+      "url": "https://www.hdfcbank.com/"
+    },
+    {
+      "id": "241",
+      "label": "article",
+      "pred": "auth",
+      "url": "https://www.indiapost.gov.in/"
+    },
+    {
+      "id": "243",
+      "label": "product_listing",
+      "pred": "auth",
+      "url": "https://www.flipkart.com/"
+    },
+    {
+      "id": "245",
+      "label": "product_listing",
+      "pred": "error",
+      "url": "https://www.bigbasket.com/"
+    },
+    {
+      "id": "246",
+      "label": "product_listing",
+      "pred": "data",
+      "url": "https://www.paytm.com/"
+    },
+    {
+      "id": "248",
+      "label": "error_captcha",
+      "pred": "social",
+      "url": "https://www.makemytrip.com/"
     }
   ]
 }

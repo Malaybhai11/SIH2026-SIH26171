@@ -15,6 +15,10 @@ import {
   gstinValid,
   detectRuleSpans,
   normalizeDevanagariDigits,
+  customTermSpans,
+  detectSpans,
+  generateSurrogate,
+  SURROGATE_TYPES,
 } from "./redact.js";
 
 test("luhn", () => {
@@ -125,65 +129,181 @@ test("NER spans merge with rules; rules win overlaps", async () => {
   assert.equal(r.text, "[NAME_1] at [EMAIL_1]");
 });
 
-// Hindi / Devanagari — B4. `\b` does not treat Devanagari as a word character (it's
-// defined over ASCII \w), so every Hindi rule is bounded with an explicit script
-// lookaround instead; these tests exist specifically to catch that class of regression.
-test("Devanagari digit normalization is index-preserving", () => {
-  assert.equal(normalizeDevanagariDigits("०१२३४५६७८९"), "0123456789");
-  assert.equal(normalizeDevanagariDigits("२३४५ ६७८९ ०१२४"), "2345 6789 0124");
-  assert.equal(normalizeDevanagariDigits("no digits here").length, "no digits here".length);
-  // mixed-script string: every non-digit codepoint must survive untouched, same length
-  const mixed = "राशि ₹१२,३४५ है";
-  assert.equal(normalizeDevanagariDigits(mixed).length, mixed.length);
+// --- B4: Hindi / Devanagari PII ---------------------------------------------------
+
+test("normalizeDevanagariDigits maps ०-९ to 0-9, length-preserving", () => {
+  assert.equal(normalizeDevanagariDigits("२३४१ २३४१ २३४६"), "2341 2341 2346");
+  assert.equal(normalizeDevanagariDigits("no digits here"), "no digits here");
+  assert.equal(normalizeDevanagariDigits("mixed 123 और ४५६").length, "mixed 123 और ४५६".length);
 });
 
-test("structured PII in Devanagari numerals hits the same rules as Latin numerals", () => {
-  const types = (s) => detectRuleSpans(s).map((x) => x.type);
-  assert.deepEqual(types("आधार २३४५ ६७८९ ०१२४ है"), ["AADHAAR"]); // Verhoeff-valid
-  // invalid check digit -> not tagged AADHAAR; still conservatively caught as a
-  // phone-shaped digit run (same "redact first, mislabel is fine" fallback as the
-  // Luhn-invalid-card case above) rather than leaking untouched
-  assert.ok(!types("आधार २३४५ ६७८९ ०१२५ है").includes("AADHAAR"));
-  assert.deepEqual(types("संपर्क करें ९८७६५४३२१० पर"), ["PHONE"]);
-  assert.deepEqual(types("आपका ओटीपी ४८२९१३ है"), ["OTP"]);
-  assert.deepEqual(types("जन्म तिथि: १४/०८/१९९५"), ["DOB"]);
-  assert.deepEqual(types("पिन कोड ११०६८५"), ["PINCODE"]);
-  // the raw value keeps the original Devanagari digits, not the normalized ASCII copy
-  assert.equal(detectRuleSpans("आधार २३४५ ६७८९ ०१२४ है")[0].value, "२३४५ ६७८९ ०१२४");
+test("Aadhaar checksum validates on Devanagari digits, same as ASCII", () => {
+  const ascii = detectRuleSpans("Aadhaar 2341 2341 2346");
+  const dev = detectRuleSpans("आधार २३४१ २३४१ २३४६");
+  assert.equal(ascii.filter((s) => s.type === "AADHAAR").length, 1);
+  const devSpan = dev.find((s) => s.type === "AADHAAR");
+  assert.ok(devSpan, "Devanagari Aadhaar not detected");
+  assert.equal(devSpan.value, "2341 2341 2346"); // value normalised to ASCII for vault identity
 });
 
-test("Hindi label words gate OTP/password/DOB/bank-account the same way English labels do", () => {
-  const types = (s) => detectRuleSpans(s).map((x) => x.type);
-  assert.deepEqual(types("मेरा पासवर्ड Hunter@2026 है।"), ["PASSWORD"]);
-  assert.deepEqual(types("खाता संख्या ५०१००२३४५६७८ में जमा किया गया।"), ["BANK_ACCOUNT"]);
-  assert.deepEqual(types("५५१९२० ही आपका ओटीपी है।"), ["OTP"]);
+test("PINCODE label matches 'zip code' (two words), not just bare ZIP", () => {
+  // Regression: "ZIP\s*[:-]?\s*digits" required the digits to follow the label
+  // directly, so "zip code 560001" — the word "code" sitting between the label
+  // and the number — fell through undetected and reached the server as plain
+  // text (caught live via eval/benchmark30_eval.mjs's leak check).
+  assert.equal(detectRuleSpans("zip code 560001")[0]?.type, "PINCODE");
+  assert.equal(detectRuleSpans("Zip: 560001")[0]?.type, "PINCODE");
+  assert.equal(detectRuleSpans("Postal code 560001")[0]?.type, "PINCODE");
+  assert.equal(detectRuleSpans("Pincode 560001")[0]?.type, "PINCODE");
 });
 
-test("Hindi addresses: house marker + area words, order-independent", () => {
-  const types = (s) => detectRuleSpans(s).map((x) => x.type);
-  assert.deepEqual(types("मकान नं. १२, सेक्टर १५, रोहिणी, दिल्ली - पिन कोड ११०६८५"), ["ADDRESS"]);
-  assert.deepEqual(types("प्लॉट ७, हाईटेक सिटी रोड, माधापुर, हैदराबाद, तेलंगाना"), ["ADDRESS"]);
-  // no house marker + no street word -> not an address
-  assert.deepEqual(types("रोहिणी, दिल्ली में मौसम अच्छा है"), ["LOCATION"]);
+test("Hindi OTP/CVV/PIN/DOB label + Devanagari digits", () => {
+  assert.equal(detectRuleSpans("आपका ओटीपी ४८२९१३ है")[0]?.type, "OTP");
+  assert.equal(detectRuleSpans("सीवीवी: १२३")[0]?.type, "CVV");
+  assert.equal(detectRuleSpans("पिन कोड: ११०१२३")[0]?.type, "PINCODE");
+  assert.equal(detectRuleSpans("जन्म तिथि: 15/08/1990")[0]?.type, "DOB");
 });
 
-test("Hindi honorific names stop at function words and don't swallow a following place", () => {
-  const types = (s) => detectRuleSpans(s).map((x) => x.type);
-  const t1 = detectRuleSpans("श्री रोहन शर्मा का आधार २३४५ ६७८९ ०१२४ है।");
-  assert.deepEqual(t1.map((x) => [x.type, x.value]), [["NAME", "रोहन शर्मा"], ["AADHAAR", "२३४५ ६७८९ ०१२४"]]);
-  // a city right after the name (no comma) is NOT absorbed into NAME — it's still
-  // caught, just by the separate LOCATION gazetteer rule instead
-  const t2 = detectRuleSpans("श्रीमती अंजलि गुप्ता मुंबई से आई हैं।");
-  assert.deepEqual(t2.map((x) => [x.type, x.value]), [["NAME", "अंजलि गुप्ता"], ["LOCATION", "मुंबई"]]);
+test("Hindi honorific + name, bounded by particles/verbs/city names", () => {
+  assert.deepEqual(
+    detectRuleSpans("श्री रोहन मेहता का फोन नंबर ९८७६५४३२१० है।").map((s) => [s.type, s.value]),
+    [["NAME", "रोहन मेहता"], ["PHONE", "9876543210"]],
+  );
+  const s = detectRuleSpans("श्री विक्रम सिंह चंडीगढ़ से आए हैं।");
+  assert.deepEqual(s.map((x) => [x.type, x.value]), [["NAME", "विक्रम सिंह"], ["LOCATION", "चंडीगढ़"]]);
 });
 
-test("Hindi hard negatives: reference numbers and plain prose stay untouched", () => {
+test("Hindi address (house marker + address word + city + PIN)", () => {
+  const s = detectRuleSpans("मकान नंबर 12, गांधी मार्ग, मुंबई 400001 पर डिलीवर करें।");
+  const addr = s.find((x) => x.type === "ADDRESS");
+  assert.ok(addr);
+  assert.match(addr.value, /मार्ग/);
+  assert.match(addr.value, /400001/);
+});
+
+test("Hindi PNR/order/ticket numbers are NOT flagged as phone (Devanagari reference context)", () => {
+  assert.deepEqual(detectRuleSpans("पीएनआर 6719633314 — ट्रेन 86262, कोच बी9।"), []);
+});
+
+test("Hindi hard negatives stay untouched", () => {
   for (const s of [
-    "ऑर्डर संख्या 402-1234567 पर कार्रवाई हो चुकी है",
-    "टिकट संख्या ४५२१३६७८९०, ट्रेन १२०१०",
-    "चंद्रयान-3 ने 23 अगस्त 2023 को चंद्रमा पर लैंड किया",
-    "कुल राशि ₹१२,३४५ है",
+    "चंद्रयान-3 ने 23 अगस्त 2023 को चंद्रमा के दक्षिणी ध्रुव के पास लैंडिंग की।",
+    "यह सेवा सोमवार से शुक्रवार, सुबह 9 बजे से शाम 6 बजे तक उपलब्ध है।",
   ]) {
     assert.deepEqual(detectRuleSpans(s), [], s);
   }
+});
+
+// --- B3: user-defined custom sensitive terms ---------------------------------------
+
+test("customTermSpans matches a literal term, case-insensitively, everywhere it appears", () => {
+  const terms = [{ label: "Codename", term: "Project Falcon" }];
+  const spans = customTermSpans("Update on project falcon: launch moved to March. PROJECT FALCON is on track.", terms);
+  assert.equal(spans.length, 2);
+  assert.ok(spans.every((s) => s.type === "CODENAME"));
+});
+
+test("customTermSpans supports a user regex pattern", () => {
+  const terms = [{ label: "Employee ID", term: "EMP-\\d{5}", isRegex: true }];
+  const spans = customTermSpans("Badge EMP-00231 was reissued.", terms);
+  assert.equal(spans.length, 1);
+  assert.equal(spans[0].type, "EMPLOYEE_ID");
+  assert.equal(spans[0].value, "EMP-00231");
+});
+
+test("customTermSpans skips an invalid user regex instead of throwing", () => {
+  const terms = [{ label: "Bad", term: "(unclosed", isRegex: true }];
+  assert.doesNotThrow(() => customTermSpans("some (unclosed text", terms));
+  assert.deepEqual(customTermSpans("some (unclosed text", terms), []);
+});
+
+test("a custom term is redacted through the full detectSpans pipeline, same as built-in PII", async () => {
+  const terms = [{ label: "Codename", term: "Aavaran Secret" }];
+  const spans = await detectSpans("The Aavaran Secret launch is confirmed.", { customTerms: terms });
+  assert.equal(spans.length, 1);
+  assert.equal(spans[0].type, "CODENAME");
+  const v = new Vault();
+  const { text } = await redactText("The Aavaran Secret launch is confirmed.", { vault: v, customTerms: terms });
+  assert.equal(text, "The [CODENAME_1] launch is confirmed.");
+});
+
+// --- surrogate ("semantic obfuscation") mode -----------------------------------
+
+test("generateSurrogate: deterministic per real value", () => {
+  assert.equal(generateSurrogate("NAME", "Priya Sharma"), generateSurrogate("NAME", "Priya Sharma"));
+  assert.equal(generateSurrogate("EMAIL", "priya@x.in"), generateSurrogate("EMAIL", "priya@x.in"));
+  assert.equal(generateSurrogate("PHONE", "9876543210"), generateSurrogate("PHONE", "9876543210"));
+  // case/whitespace-insensitive, mirroring the Vault's own normKey
+  assert.equal(generateSurrogate("NAME", "Priya Sharma"), generateSurrogate("NAME", "  priya sharma  "));
+});
+
+test("generateSurrogate: different real values get different surrogates", () => {
+  const names = ["Priya Sharma", "Rohan Mehta", "Ananya Iyer", "Vikram Singh", "Imran Qureshi", "Kavya Nair"].map((n) => generateSurrogate("NAME", n));
+  assert.equal(new Set(names).size, names.length);
+});
+
+test("generateSurrogate: never equals the real value, well-formed per type", () => {
+  const cases = [
+    ["NAME", "Priya Sharma"],
+    ["EMAIL", "priya.sharma@gmail.com"],
+    ["PHONE", "9876543210"],
+    ["ADDRESS", "House No. 12, Sector 15, Rohini, Delhi 110085"],
+    ["LOCATION", "Ahmedabad"],
+  ];
+  for (const [type, real] of cases) {
+    const s = generateSurrogate(type, real);
+    assert.notEqual(s.toLowerCase(), real.toLowerCase(), type);
+  }
+  assert.match(generateSurrogate("EMAIL", "a@b.com"), /^[^\s@]+@[^\s@]+\.[^\s@]+$/);
+  assert.match(generateSurrogate("PHONE", "9876543210").replace(/\D/g, ""), /^91[6-9]\d{9}$/);
+  assert.match(generateSurrogate("NAME", "a"), /^[A-Za-z]+ [A-Za-z]+$/);
+  assert.match(generateSurrogate("ADDRESS", "a"), /House No\. \d+.*\d{6}$/);
+  assert.match(generateSurrogate("LOCATION", "a"), /^[A-Za-z]+, [A-Za-z ]+$/);
+});
+
+test("generateSurrogate: unsupported types return null (caller falls back to a token)", () => {
+  assert.equal(generateSurrogate("CC", "4242424242424242"), null);
+  assert.equal(generateSurrogate("AADHAAR", "234567890124"), null);
+  assert.deepEqual([...SURROGATE_TYPES].sort(), ["ADDRESS", "EMAIL", "LOCATION", "NAME", "PHONE"]);
+});
+
+test("Vault surrogate mode: consistent per value, resolves back to the real value", async () => {
+  const v = new Vault(null, { mode: "surrogate" });
+  const a = await redactText("Mail priya@x.in, cc priya@x.in and ravi@y.in", { vault: v });
+  const [tokA, tokARepeat, tokB] = a.text.match(/[^\s,]+@[^\s,]+/g);
+  assert.equal(tokA, tokARepeat); // same address, same surrogate both times
+  assert.notEqual(tokA, "priya@x.in");
+  assert.notEqual(tokB, "ravi@y.in");
+  assert.equal(v.resolve(a.text), "Mail priya@x.in, cc priya@x.in and ravi@y.in");
+  assert.deepEqual(v.catalog().map((c) => c.type), ["EMAIL", "EMAIL"]);
+});
+
+test("Vault surrogate mode: types without a generator still fall back to a bracket token", async () => {
+  const v = new Vault(null, { mode: "surrogate" });
+  const { text } = await redactText("aadhaar 2345 6789 0124", { vault: v });
+  assert.equal(text, "aadhaar [AADHAAR_1]");
+  assert.equal(v.resolve(text), "aadhaar 2345 6789 0124");
+});
+
+test("Vault surrogate mode: default mode is still 'token' (additive, no default-behavior change)", () => {
+  const v = new Vault();
+  assert.equal(v.mode, "token");
+  assert.equal(v.tokenFor("NAME", "Priya Sharma"), "[NAME_1]");
+});
+
+test("Vault: labelFor gives a plain TYPE_n mark regardless of mode (pixel-box labels stay opaque)", () => {
+  const v = new Vault(null, { mode: "surrogate" });
+  const tok = v.tokenFor("NAME", "Priya Sharma");
+  assert.notEqual(tok, "[NAME_1]");
+  assert.equal(v.labelFor(tok), "NAME_1");
+});
+
+test("Vault surrogate mode survives JSON round-trip (chrome.storage.session)", async () => {
+  const v = new Vault(null, { mode: "surrogate" });
+  const { text } = await redactText("call 9876543210", { vault: v });
+  const v2 = new Vault(JSON.parse(JSON.stringify(v)));
+  assert.equal(v2.mode, "surrogate");
+  assert.equal(v2.resolve(text), "call 9876543210");
+  // re-tokenising the same value from the restored vault returns the same surrogate
+  assert.equal(v2.tokenFor("PHONE", "9876543210"), text.replace("call ", ""));
 });

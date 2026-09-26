@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>SecurePay widget</title>
+<style>
+  body{margin:0;font:14px/1.4 system-ui,sans-serif;background:#fff;color:#1d2433;padding:14px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+  label{display:block;font-size:12px;color:#667085;margin-bottom:4px}
+  input{width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px}
+  .brand{font-size:12px;color:#667085;margin-bottom:10px}
+</style></head>
+<body>
+<!-- Simulates a third-party payment SDK (Razorpay/Stripe-style) embedded via
+     <iframe> from a DIFFERENT origin than the merchant checkout page. This page
+     is deliberately served from a different hostname than checkout_iframe.html
+     (see eval/iframe_redaction_eval.mjs) so the browser treats it as a real
+     cross-origin frame — the extension's content script can only reach it
+     because manifest.json injects into every frame (all_frames: true), not
+     because it shares an origin with the top page. -->
+<div class="brand">🔒 SecurePay — test mode</div>
+<div class="row">
+  <div><label for="ccname">Name on card</label><input id="ccname" autocomplete="cc-name" value="Rohan Mehta" data-pii="NAME"></div>
+  <div><label for="cc">Card number</label><input id="cc" autocomplete="cc-number" value="4111 1111 1111 1111" data-pii="CC"></div>
+</div>
+<div class="row">
+  <div><label for="exp">Expiry</label><input id="exp" autocomplete="cc-exp" value="12/28" data-pii="CC"></div>
+  <div><label for="cvv">CVV</label><input id="cvv" autocomplete="cc-csc" value="123" data-pii="CVV"></div>
+</div>
+</body></html>

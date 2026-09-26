@@ -30,5 +30,20 @@
  "217": "login",
  "218": "login",
  "220": null,
- "227": null
+ "227": null,
+ "229": "error_captcha",
+ "235": null,
+ "236": "error_captcha",
+ "242": "error_captcha",
+ "244": null,
+ "247": null,
+ "248": "error_captcha",
+ "251": "error_captcha",
+ "233": "article",
+ "234": "article",
+ "237": "error_captcha",
+ "238": "article",
+ "239": "article",
+ "240": "article",
+ "241": "article"
 }

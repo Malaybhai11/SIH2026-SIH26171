@@ -10,18 +10,41 @@ const CHROME = process.env.CHROME_PATH || ["/usr/bin/google-chrome", "/usr/bin/c
 
 export async function launch({ headless = true, dist = "dist", width = 1280, height = 800 } = {}) {
   const ext = path.resolve(dist);
+  // Chrome doesn't read HTTPS_PROXY from the environment (unlike curl/node/etc) —
+  // this sandbox's outbound HTTPS only works through the agent proxy, so a real
+  // external site (e.g. eval/benchmark30_eval.mjs's unseen-site tasks) needs this
+  // passed explicitly, or every navigation fails with chrome-error://chromewebdata.
+  const proxy = process.env.HTTPS_PROXY || process.env.https_proxy;
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: headless ? "new" : false,
     defaultViewport: null,
-    // branded Chrome ignores --load-extension since v137; install over CDP instead
     pipe: true,
-    enableExtensions: [ext],
     args: [
       `--window-size=${width},${height}`,
       "--no-first-run",
       "--no-default-browser-check",
       "--force-device-scale-factor=1",
+      // Chrome refuses its setuid sandbox when launched as root (CI containers,
+      // this eval environment); containerised eval runners are typically root,
+      // where the container itself is the isolation boundary instead.
+      ...(process.getuid && process.getuid() === 0 ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
+      "--disable-dev-shm-usage",
+      // Google-branded Chrome ignores --load-extension since v137 (CDP
+      // Extensions.loadUnpacked would be the replacement, but that CDP domain
+      // isn't present on a plain open-source Chromium build) — this repo's
+      // pre-installed browser IS plain Chromium, where --load-extension still
+      // works in the new headless mode.
+      `--load-extension=${ext}`,
+      `--disable-extensions-except=${ext}`,
+      ...(proxy ? [`--proxy-server=${proxy}`, "--proxy-bypass-list=localhost,127.0.0.1,::1,<local>"] : []),
+      // Cut Chrome's own background chatter (safe-browsing pings, component
+      // update checks, captive-portal probes) — plain-HTTP requests the agent
+      // proxy rejects outright (CONNECT/HTTPS only), and noise unrelated to
+      // whatever page this harness is actually testing.
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-domain-reliability",
     ],
   });
   const swTarget = await browser.waitForTarget((t) => t.type() === "service_worker" && t.url().endsWith("background.js"), { timeout: 20000 });

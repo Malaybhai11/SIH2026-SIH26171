@@ -110,22 +110,6 @@ export function aadhaarValid(num) {
   return s.length === 12 && /^[2-9]/.test(s) && verhoeffValid(s);
 }
 
-// Devanagari digits (U+0966-U+096F) -> ASCII, one codepoint for one codepoint, so every
-// other rule's offsets stay valid against the ORIGINAL string. Structured numeric PII
-// (Aadhaar, phone, PIN, OTP, bank account...) written in Hindi numerals is invisible to
-// every digit-based rule above without this — it's the single highest-leverage fix for
-// Hindi/Devanagari content, since the surrounding words rarely gate detection at all.
-const DEVANAGARI_DIGITS = "०१२३४५६७८९";
-export function normalizeDevanagariDigits(text) {
-  if (!text || !/[०-९]/.test(text)) return text;
-  let out = "";
-  for (const ch of text) {
-    const i = DEVANAGARI_DIGITS.indexOf(ch);
-    out += i >= 0 ? String(i) : ch;
-  }
-  return out;
-}
-
 const GST_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 export function gstinValid(g) {
   const s = String(g).toUpperCase();
@@ -147,7 +131,129 @@ const ADDR_WORD = String.raw`(?:Road|Rd|Marg|Nagar|Colony|Street|St|Lane|Ln|Sect
 
 // identifiers that look like phone numbers but follow a reference label
 const REF_CONTEXT =
-  /\b(?:ISBN(?:-1[03])?|PNR|order|invoice|ref(?:erence)?|txn|transaction(?: id)?|UTR|tracking|AWB|ticket|booking|train|flight)\s*(?:no\.?|number|id)?\s*[:#]?\s*$|(?:ऑर्डर|इनवॉइस|चालान|संदर्भ|लेनदेन|ट्रैकिंग|टिकट|बुकिंग|पीएनआर)(?:\s?(?:संख्या|नंबर|क्रमांक))?\s*[:#]?\s*$/i;
+  /(?:\b(?:PNR|order|invoice|ref(?:erence)?|txn|transaction(?: id)?|UTR|tracking|AWB|ticket|booking|train|flight)\s*(?:no\.?|number|id)?\s*[:#]?|(?:पीएनआर|ऑर्डर|चालान|संदर्भ|लेनदेन|ट्रैकिंग|टिकट|बुकिंग|ट्रेन)\s*(?:नंबर|सं\.?)?\s*[:#]?)\s*$/i;
+
+// --- B4: Hindi / Devanagari PII --------------------------------------------------
+//
+// Devanagari digits (०-९, U+0966-U+096F) are drop-in 1-for-1 substitutes for ASCII
+// digits — same string length, same character positions — so every existing
+// digit-based rule above (Aadhaar/Verhoeff, phone, OTP, CVV, PIN, bank account,
+// DOB) already works on Hindi numerals once the string they scan has been
+// normalised. detectRuleSpans() below runs every rule against a normalised COPY
+// of the text; span start/end stay valid on the ORIGINAL string because the
+// substitution never changes length or count.
+const DEV_DIGIT_MAP = {};
+for (let i = 0; i <= 9; i++) DEV_DIGIT_MAP[String.fromCharCode(0x0966 + i)] = String(i);
+
+export function normalizeDevanagariDigits(s) {
+  return s.replace(/[०-९]/g, (c) => DEV_DIGIT_MAP[c]);
+}
+
+// --- E2: red-team evasion normalization -------------------------------------------
+//
+// Three unrelated Unicode tricks a page can use to make a real PII value pass
+// visually as itself while defeating every regex/checksum rule above, which all
+// scan literal characters in literal order:
+//   1. Zero-width characters (U+200B ZWSP, U+200C ZWNJ, U+200D ZWJ, U+2060 WORD
+//      JOINER, U+FEFF BOM, U+180E) spliced INTO a value ("pri​ya@ex​ample.com")
+//      — invisible to a human, but breaks every \b/character-class match.
+//   2. Homoglyphs: Cyrillic/Greek look-alikes swapped for Latin letters
+//      ("pri­yа@example.com" with Cyrillic а U+0430) — renders identically to a
+//      human eye, doesn't match [A-Za-z...] classes.
+//   3. RTL override (U+202E RLO ... U+202C PDF): the enclosed text is stored in
+//      REVERSE order but the browser renders it left-to-right-correct, so a Luhn-
+//      or Verhoeff-checksummed value (order-dependent) fails validation on the
+//      reversed digit string and is never classified as PII at all.
+//
+// normalizeForScan() undoes all three before the RULES run, and returns an index
+// MAP so a match on the normalized string can be translated back to an exact
+// [start,end) slice of the ORIGINAL string for applySpans() — min/max of the
+// touched original indices, which is correct even where RLO reversed their order
+// (see the loop below: it doesn't need them to stay monotonic, only contiguous).
+const HOMOGLYPH_MAP = {
+  "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y", "і": "i", "ѕ": "s", "ј": "j",
+  "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H", "О": "O", "Р": "P", "С": "C", "Т": "T", "Х": "X",
+  "ο": "o", "Α": "A", "Β": "B", "Ε": "E", "Ζ": "Z", "Η": "H", "Ι": "I", "Κ": "K", "Μ": "M", "Ν": "N", "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X",
+};
+export function normalizeHomoglyphs(s) {
+  let out = "";
+  for (const c of s) out += HOMOGLYPH_MAP[c] ?? c;
+  return out;
+}
+
+const ZERO_WIDTH = new Set(["​", "‌", "‍", "⁠", "﻿", "᠎"]);
+const BIDI_SKIP = new Set(["‬", "‪", "‫", "‭", "⁦", "⁧", "⁨", "⁩"]);
+const RLO = "‮";
+const PDF = "‬";
+
+/** Undo zero-width splicing, homoglyphs and RTL-override reversal before scanning; returns {text, map} where map[j] is the ORIGINAL index of normalized char j. */
+export function normalizeForScan(text) {
+  const outChars = [];
+  const map = [];
+  // Fullwidth Unicode forms (U+FF01-FF5E mirror ASCII 0x21-0x7E at a fixed +0xFEE0
+  // offset; U+3000 IDEOGRAPHIC SPACE mirrors a plain space) — a distinct evasion
+  // class from homoglyphs (different block, but same "renders legibly, doesn't
+  // match [A-Za-z0-9]" property), so it gets its own formulaic case here.
+  const fullwidth = (c) => {
+    const code = c.codePointAt(0);
+    if (code >= 0xff01 && code <= 0xff5e) return String.fromCharCode(code - 0xfee0);
+    if (code === 0x3000) return " ";
+    return c;
+  };
+  const push = (idx) => {
+    const c = text[idx];
+    if (ZERO_WIDTH.has(c)) return;
+    outChars.push(fullwidth(HOMOGLYPH_MAP[c] ?? DEV_DIGIT_MAP[c] ?? c));
+    map.push(idx);
+  };
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const ch = text[i];
+    if (ch === RLO) {
+      i++;
+      const start = i;
+      while (i < n && text[i] !== PDF) i++;
+      const end = i; // [start, end) is the reversed run, in ORIGINAL order
+      if (i < n) i++; // consume the matching PDF
+      for (let k = end - 1; k >= start; k--) push(k); // emit reversed -> logical order
+      continue;
+    }
+    if (BIDI_SKIP.has(ch)) {
+      i++;
+      continue;
+    }
+    push(i);
+    i++;
+  }
+  return { text: outChars.join(""), map };
+}
+
+// Loose "Devanagari word character": letters + vowel signs/virama, deliberately
+// EXCLUDING the danda/double-danda punctuation (U+0964-U+0965, sentence-final —
+// it must stop a name/address match, not extend it) and the digit block
+// (U+0966-U+096F — handled separately by normalizeDevanagariDigits above; a
+// "word" here should never accidentally swallow an adjacent number).
+const HI_WORD = String.raw`[ऀ-ॣ॰-ॿ]+`;
+
+// Honorific + name: Hindi has no capitalisation to lean on (unlike the English
+// NAME rule, which is NER-only), so a name is recognised by the title in front of
+// it — the same cue a human reader uses. Bounded to 1-4 Devanagari words so it
+// doesn't run on into the rest of the sentence.
+const HI_HONORIFIC = String.raw`(?:श्रीमती|श्री|सुश्री|कुमारी|डॉ\.?|डॉक्टर)`;
+// Common postpositions/particles/verbs that must stop a name match ("रोहन मेहता का
+// फोन" is a name followed by "of phone", not a 4-word name) — Hindi has no
+// capitalisation to mark where a name ends, so this stoplist does that job.
+const HI_STOP = String.raw`(?:का|की|के|ने|को|से|में|पर|है|हैं|था|थी|और|या|यह|वह|तथा|एवं|साथ)`;
+
+// Hindi address vocabulary (locality/street words) mirroring ADDR_WORD, plus the
+// house/plot markers that precede an address in Hindi government and e-commerce
+// forms. Rules run against the digit-normalised text (see detectRuleSpans), so
+// these use plain \d exactly like the English rules above.
+const HI_HOUSE = String.raw`(?:मकान|प्लॉट|फ्लैट|दुकान)\s*(?:नंबर|नं\.?|सं\.?)?\s*[:#]?\s*\d[\wऀ-ॣ॰-ॿ/-]*`;
+const HI_ADDR_WORD = String.raw`(?:मार्ग|नगर|गली|सड़क|कॉलोनी|चौक|विहार|पुरम|सेक्टर|गांव|गाँव|जिला|ज़िला|तहसील|ब्लॉक|अपार्टमेंट|सोसाइटी|रोड|एन्क्लेव|टावर)`;
+
+const HI_CITY = String.raw`(?:मुंबई|मुम्बई|दिल्ली|नई\s*दिल्ली|बेंगलुरु|बैंगलोर|चेन्नई|कोलकाता|हैदराबाद|पुणे|अहमदाबाद|जयपुर|लखनऊ|कोच्चि|इंदौर|भोपाल|चंडीगढ़|नागपुर|सूरत|पटना|गुवाहाटी|वाराणसी|देहरादून|मैसूरु|रांची|भुवनेश्वर|तिरुवनंतपुरम)`;
 
 const RULES = [
   { type: "SECRET", re: /\b(?:sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g },
@@ -191,7 +297,7 @@ const RULES = [
       const spaced = /\s/.test(v);
       return d.length >= 10 && d.length <= 15 && (strong || (spaced && d.length <= 13)) && !/^\d{4}-\d{2}-\d{2}/.test(v.trim());
     },
-    notAfter: REF_CONTEXT,
+    notAfter: /\b(?:ISBN(?:-1[03])?|PNR|order|invoice|ref(?:erence)?|txn|transaction(?: id)?|UTR|tracking|AWB|ticket|booking)\s*(?:no\.?|number|id)?\s*[:#]?\s*$/i,
   },
   // Indian/US street address: house marker, words up to a street keyword, then up to
   // five ", Segment" parts (locality, city, state) and an optional PIN code.
@@ -204,93 +310,84 @@ const RULES = [
     // "Room 420, Block C" is a room, not an address: need >= 3 words or a PIN code
     valid: (v) => v.trim().split(/\s+/).length >= 3 || /\b[1-9]\d{2}\s?\d{3}\b/.test(v),
   },
-  { type: "PINCODE", re: /\b(?:PIN|Pincode|Pin code|Postal code|ZIP)\s*[:\-]?\s*([1-9]\d{2}\s?\d{3})\b/gi, group: 1 },
+  // "PIN"/"ZIP"/"Postal" each optionally followed by the word "code" (with or
+  // without a space) before the label separator — "zip code 560001" was falling
+  // through here because "code" sat between the label and the digits, which the
+  // old alternation (bare "ZIP", or the fixed two-word "Pin code"/"Postal code")
+  // didn't account for on the "zip" side. \s*code\.? covers "zip code"/"zipcode"
+  // uniformly for every label instead of hand-listing each one/two-word variant.
+  { type: "PINCODE", re: /\b(?:PIN|Pincode|Postal|ZIP)(?:\s*code)?\s*[:\-]?\s*([1-9]\d{2}\s?\d{3})\b/gi, group: 1 },
 
-  // --- Hindi / Devanagari -----------------------------------------------------------
-  // Structured numeric PII (Aadhaar, phone, PIN...) is already caught by the rules
-  // above once Devanagari digits are normalized (see detectRuleSpans). What's added
-  // here is what normalization can't reach: Hindi label words that GATE a match
-  // (OTP/password/DOB/account rules above all require an English label) and two
-  // rule-based (non-NER) detectors — an honorific-triggered name pattern and a small
-  // gazetteer of Indian place names — since the on-device NER model is English-only
-  // (see docs/model-contract.md) and a Devanagari-capable model is separate, larger
-  // work (tracked as its own item, not silently skipped here).
-  // NOTE: `\b` is defined over ASCII `\w` and does not treat Devanagari letters as
-  // word characters, so `\bहिन्दी\b`-style boundaries silently never match — every
-  // Hindi literal below is bounded with an explicit Devanagari-block lookaround
-  // instead: (?<![ऀ-ॿ]) ... (?![ऀ-ॿ]).
-  { type: "OTP", re: /(?<![ऀ-ॿ])ओटीपी(?![ऀ-ॿ])[^0-9\n]{0,15}(\d{4,8})\b/g, group: 1 },
-  { type: "OTP", re: /(\d{4,8})\s*(?:ही\s+)?(?:आपका|आपकी)\s+ओटीपी\s+है/g, group: 1 },
-  { type: "PASSWORD", re: /(?<![ऀ-ॿ])पासवर्ड(?![ऀ-ॿ])\s*(?:है|:|=)?\s*(\S{4,64})/g, group: 1, valid: (v) => /\d/.test(v) || /[^\p{L}]/u.test(v) },
-  { type: "CVV", re: /(?<![ऀ-ॿ])(?:सीवीवी|सीवीसी)(?![ऀ-ॿ])\s*(?:है|:|=|नंबर)?\s*(\d{3,4})\b/g, group: 1 },
-  { type: "DOB", re: /(?<![ऀ-ॿ])जन्म\s?तिथि(?![ऀ-ॿ])\s*[:\-]?\s*(\d{1,2}[\/\-. ]\d{1,2}[\/\-. ]\d{2,4})/g, group: 1 },
+  // --- Hindi / Devanagari script rules (B4) — separate rules rather than folding
+  // into the English ones above: \b is defined over ASCII \w, so it doesn't bound
+  // correctly at a Devanagari word (whitespace and Devanagari letters are both \W,
+  // so no transition — see HI_WORD comment). A mixed sentence that keeps "OTP",
+  // "CVV" etc. as English loanwords (very common in Indian SMS/forms) already
+  // matches the English rules above unchanged; these cover the Devanagari-script
+  // label spelling.
+  { type: "OTP", re: new RegExp(String.raw`(?:ओटीपी|वन[- ]टाइम\s*(?:पासवर्ड|कोड)|सत्यापन\s*कोड)[^0-9\n]{0,24}(\d{4,8})`, "g"), group: 1 },
+  { type: "CVV", re: new RegExp(String.raw`(?:सीवीवी|सुरक्षा\s*कोड)[^0-9\n]{0,20}(\d{3,4})`, "g"), group: 1 },
+  { type: "DOB", re: new RegExp(String.raw`(?:जन्म\s*तिथि|जन्मतिथि|डीओबी)\s*[:\-]?\s*(\d{1,2}[\/\-. ]\d{1,2}[\/\-. ]\d{2,4})`, "g"), group: 1 },
+  { type: "PINCODE", re: new RegExp(String.raw`(?:पिन\s*कोड|डाक\s*कोड|पिनकोड)\s*[:\-]?\s*([1-9]\d{2}\s?\d{3})`, "g"), group: 1 },
   {
     type: "BANK_ACCOUNT",
-    re: /(?<![ऀ-ॿ])खाता\s?(?:संख्या|नंबर|क्रमांक)(?![ऀ-ॿ])[^0-9\n]{0,15}((?:[Xx*]{2,}\s?)?\d[\d\s-]{2,20}\d)\b/g,
+    re: new RegExp(String.raw`(?:खाता\s*(?:संख्या|नंबर|क्रमांक)|अकाउंट\s*नंबर)\s*[:\-]?\s*(\d[\d\s-]{5,20}\d)`, "g"),
     group: 1,
     valid: (v) => v.replace(/\D/g, "").length >= 6,
   },
-  { type: "PINCODE", re: /(?<![ऀ-ॿ])पिन\s?कोड(?![ऀ-ॿ])\s*[:\-]?\s*([1-9]\d{2}\s?\d{3})\b/g, group: 1 },
-  // house marker + a run of comma-separated Devanagari/number segments, at least one of
-  // which is a recognized street/area word. Word ORDER varies a lot in real addresses
-  // ("Sector 15" puts the number after the word; a locality can come before or after
-  // the street) — matching by presence rather than a fixed position, unlike the
-  // English rule above, is what makes this robust to that.
-  {
-    type: "ADDRESS",
-    re: /(?<![ऀ-ॿ])(?:मकान|फ्लैट|प्लॉट|दुकान)(?![ऀ-ॿ])[^,\n]{0,24}(?:,\s*[ऀ-ॿ0-9][ऀ-ॿ0-9.' -]*){2,7}/g,
-    valid: (v) => /सेक्टर|रोड|मार्ग|नगर|कॉलोनी|गली|ब्लॉक|मोहल्ला|चौक|गाँव|गांव|तहसील|ज़िला|जिला|एन्क्लेव|विहार|पुरम/.test(v) && v.trim().split(/\s+/).length >= 4,
-  },
-  // honorific + Devanagari name (1-4 words) — rule-based, not NER; see note above.
-  // Each continuation word is refused if it's a function word, a PII-label word, or a
-  // gazetteer place name, so the match stops at the name instead of running into
-  // "...का आधार" or "...से आई" — a place name right after the name (no comma) still
-  // goes unclaimed here and is picked up separately by the LOCATION rule below.
   {
     type: "NAME",
-    re: /(?<![ऀ-ॿ])(?:श्री|श्रीमती|सुश्री|कुमारी|डॉ\.?)(?![ऀ-ॿ])\s+([ऀ-ॿ]+(?:\s+(?!(?:का|की|के|है|हैं|में|से|को|पर|ने|और|या|यह|वह|जी|साहब|महोदय|महोदया|आधार|पासवर्ड|ओटीपी|कार्ड|संख्या|नंबर|फोन|मोबाइल|जन्म|तिथि|खाता|पिन|कोड|मुंबई|मुम्बई|दिल्ली|बेंगलुरु|बैंगलोर|चेन्नई|कोलकाता|हैदराबाद|पुणे|अहमदाबाद|जयपुर|लखनऊ)(?![ऀ-ॿ]))[ऀ-ॿ]+){0,3})/g,
+    // Bounded to 1-2 words (the overwhelming majority of Hindi personal names in
+    // these contexts): a 3rd word is almost always the next clause ("...ने आवेदन
+    // किया"), a city ("...चंडीगढ़ से आए"), or another particle, not more of the name.
+    re: new RegExp(String.raw`${HI_HONORIFIC}\s+(${HI_WORD}(?:\s+(?!${HI_STOP}(?:\s|$|[।॥,.])|${HI_CITY})${HI_WORD}){0,1})`, "g"),
     group: 1,
-    valid: (v) => !/^(?:जी|साहब|महोदय|महोदया)$/.test(v.trim()),
   },
-  // small gazetteer of major Indian cities/metros written in Devanagari
   {
-    type: "LOCATION",
-    re: /(?<![ऀ-ॿ])(?:मुंबई|मुम्बई|दिल्ली|नई\s?दिल्ली|बेंगलुरु|बैंगलोर|चेन्नई|कोलकाता|हैदराबाद|पुणे|अहमदाबाद|जयपुर|लखनऊ|कोच्चि|इंदौर|भोपाल|चंडीगढ़|नागपुर|सूरत|पटना|गुवाहाटी|वाराणसी|देहरादून|रांची|भुवनेश्वर|तिरुवनंतपुरम|मैसूरु|कानपुर|नासिक|कोयंबटूर|विशाखापत्तनम|अमृतसर)(?![ऀ-ॿ])/g,
+    type: "ADDRESS",
+    re: new RegExp(String.raw`${HI_HOUSE}[,\s]+(?:${HI_WORD}[,\s]+){0,6}?${HI_ADDR_WORD}(?:[,\s]+${HI_WORD}){0,3}(?:[,\s]+[1-9]\d{2}\s?\d{3})?`, "g"),
+    valid: (v) => v.trim().split(/\s+/).length >= 3 || /[1-9]\d{2}\s?\d{3}/.test(v),
   },
+  { type: "LOCATION", re: new RegExp(HI_CITY, "g") },
 ];
 
-/** Rule layer: spans on the ORIGINAL text. */
+/** Rule layer: spans on the ORIGINAL text. Devanagari digits, zero-width splicing,
+ * homoglyphs and RTL-override reversal are all undone first (normalizeForScan);
+ * a match's [start,end) is then the [min,max]+1 of the touched original indices
+ * (see normalizeForScan's doc comment for why this stays correct under reversal). */
 export function detectRuleSpans(text) {
   if (!text || typeof text !== "string") return [];
-  // Devanagari-digit-normalized copy, same length/offsets as `text` (see the function's
-  // own comment) — every rule above matches against this, so a Hindi-numeral Aadhaar or
-  // phone number is caught by the SAME digit-based rules as its Latin-numeral form.
-  const norm = normalizeDevanagariDigits(text);
+  const { text: normalized, map } = normalizeForScan(text);
   const spans = [];
   for (const rule of RULES) {
     rule.re.lastIndex = 0;
     let m;
-    while ((m = rule.re.exec(norm))) {
+    while ((m = rule.re.exec(normalized))) {
       if (m[0].length === 0) {
         rule.re.lastIndex++;
         continue;
       }
       let value = m[0];
-      let start = m.index;
+      let nStart = m.index;
       if (rule.group) {
         value = m[rule.group];
         if (!value) continue;
-        start = m.index + m[0].lastIndexOf(value);
+        nStart = m.index + m[0].lastIndexOf(value);
       }
       // trim trailing separators / whitespace
-      const trimmedNorm = value.replace(/[\s,.;:-]+$/, "");
-      if (!trimmedNorm) continue;
-      // re-slice from the ORIGINAL text so Devanagari digits are preserved in the
-      // returned value (offsets are identical between norm and text — see above)
-      const trimmed = text.slice(start, start + trimmedNorm.length);
-      if (rule.valid && !rule.valid(trimmedNorm, m, norm)) continue;
-      if (rule.notAfter && rule.notAfter.test(norm.slice(Math.max(0, start - 24), start))) continue;
-      spans.push({ start, end: start + trimmed.length, type: rule.type, value: trimmed, source: "rule" });
+      const trimmed = value.replace(/[\s,.;:-]+$/, "");
+      if (!trimmed) continue;
+      if (rule.valid && !rule.valid(trimmed, m, normalized)) continue;
+      if (rule.notAfter && rule.notAfter.test(normalized.slice(Math.max(0, nStart - 24), nStart))) continue;
+      const segMap = map.slice(nStart, nStart + trimmed.length);
+      if (!segMap.length) continue;
+      const start = Math.min(...segMap);
+      const end = Math.max(...segMap) + 1;
+      // value stays the NORMALIZED form (ASCII digits, logical digit order, Latin
+      // letters) — same behaviour as the pre-existing Devanagari-digit case: it's
+      // the canonical value a Vault/rehydration step should reason about, not the
+      // attacker's raw on-page encoding of it.
+      spans.push({ start, end, type: rule.type, value: trimmed, source: "rule" });
     }
   }
   return resolveOverlaps(spans);
@@ -325,32 +422,173 @@ function normKey(type, value) {
   return `${type}:${v.toLowerCase().replace(/\s+/g, " ").trim()}`;
 }
 
+// --- surrogate generation -----------------------------------------------------
+//
+// Semantic obfuscation mode ("surrogates"): instead of an opaque [NAME_1] token, the
+// Vault can mint a plausible-but-fake replacement of the same shape ("Asha Verma"),
+// so an LLM's natural-language reasoning ("does this look like a real name?") sees
+// fluent text instead of a placeholder. The REAL value still never leaves the device:
+// it only ever exists as a key in the Vault, resolved back locally at execution time
+// exactly like a bracket token is today. All data below is synthetic (no real people).
+
+function hashSeed(s) {
+  let h = 2166136261;
+  const str = String(s);
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+// Deterministic PRNG (mulberry32) so a given seed always produces the same stream —
+// this is what makes generateSurrogate a pure, repeatable function of its inputs.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function rand() {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const pick = (rand, arr) => arr[Math.floor(rand() * arr.length) % arr.length];
+const digitsOf = (rand, n) => {
+  let s = "";
+  for (let i = 0; i < n; i++) s += Math.floor(rand() * 10);
+  return s;
+};
+
+// Indian-context synthetic name/place data, matching the project's demo-data flavor
+// (server/demo/*.html). None of these refer to real people.
+const SURR_FIRST = ["Asha", "Ananya", "Arjun", "Divya", "Farhan", "Gauri", "Harsh", "Isha", "Kabir", "Kavya", "Lakshmi", "Manav", "Meera", "Neha", "Nikhil", "Pooja", "Rahul", "Rohan", "Sana", "Tara", "Uday", "Varun", "Yash", "Zara"];
+const SURR_LAST = ["Bhatt", "Chauhan", "Desai", "Gupta", "Iyer", "Joshi", "Kapoor", "Kulkarni", "Malhotra", "Menon", "Nair", "Patel", "Pillai", "Rao", "Reddy", "Saxena", "Shetty", "Sinha", "Thakur", "Verma"];
+const SURR_CITY = ["Pune", "Jaipur", "Lucknow", "Nagpur", "Indore", "Bhopal", "Kochi", "Chandigarh", "Coimbatore", "Surat", "Nashik", "Guwahati", "Vadodara", "Ranchi", "Mysuru", "Dehradun", "Amritsar", "Bhubaneswar"];
+const SURR_STATE = ["Maharashtra", "Rajasthan", "Uttar Pradesh", "Karnataka", "Gujarat", "Punjab", "Telangana", "Odisha", "Kerala", "Haryana"];
+const SURR_STREET_WORD = ["Nagar", "Colony", "Marg", "Layout", "Cross", "Vihar", "Enclave", "Phase", "Extension", "Sector"];
+const SURR_EMAIL_DOMAIN = ["mailbox.example", "inboxmail.in", "netpost.example", "dakmail.example"];
+
+function surrogateName(rand) {
+  return `${pick(rand, SURR_FIRST)} ${pick(rand, SURR_LAST)}`;
+}
+function surrogateEmail(rand) {
+  const local = `${pick(rand, SURR_FIRST)}.${pick(rand, SURR_LAST)}${Math.floor(rand() * 90) + 10}`.toLowerCase();
+  return `${local}@${pick(rand, SURR_EMAIL_DOMAIN)}`;
+}
+function surrogatePhone(rand) {
+  // Indian mobile shape: leading 6-9, 10 digits total, grouped like the RULES regex expects.
+  const first = "6789"[Math.floor(rand() * 4)];
+  const rest = digitsOf(rand, 9);
+  return `+91 ${first}${rest.slice(0, 4)} ${rest.slice(4)}`;
+}
+function surrogateLocation(rand) {
+  return `${pick(rand, SURR_CITY)}, ${pick(rand, SURR_STATE)}`;
+}
+function surrogateAddress(rand) {
+  const house = Math.floor(rand() * 900) + 10;
+  const sector = Math.floor(rand() * 40) + 1;
+  const pincode = `${1 + Math.floor(rand() * 8)}${digitsOf(rand, 5)}`;
+  return `House No. ${house}, ${pick(rand, SURR_STREET_WORD)} ${sector}, ${pick(rand, SURR_CITY)} ${pincode}`;
+}
+
+const SURROGATE_GENERATORS = {
+  NAME: surrogateName,
+  EMAIL: surrogateEmail,
+  PHONE: surrogatePhone,
+  ADDRESS: surrogateAddress,
+  LOCATION: surrogateLocation,
+};
+
+/** Types generateSurrogate knows how to fake; everything else falls back to a bracket token. */
+export const SURROGATE_TYPES = new Set(Object.keys(SURROGATE_GENERATORS));
+
+/**
+ * Pure, deterministic surrogate generator: the same (type, realValue) always produces
+ * the same plausible-but-fake replacement — same real value -> same surrogate, so a
+ * name repeated on a page reads as the same fake name everywhere. Pass an explicit
+ * `seed` (e.g. a disambiguation counter) to get a different candidate for the same
+ * value; omit it to hash the value itself. Returns null for a type with no generator,
+ * so the caller can fall back to an opaque [TYPE_n] token.
+ */
+export function generateSurrogate(type, realValue, seed) {
+  const gen = SURROGATE_GENERATORS[type];
+  if (!gen) return null;
+  const s = seed === undefined ? hashSeed(`${type}:${String(realValue).trim().toLowerCase()}`) : seed >>> 0;
+  return gen(mulberry32(s));
+}
+
 /**
  * Local pseudonym vault. Same value -> same token for the whole task, across pages,
  * so the server can reason about identity ("[NAME_2] also appears in the To: field")
  * without learning it. Serializable for chrome.storage.session (memory-only).
+ *
+ * Redaction mode ("token" | "surrogate"): "token" (default) mints opaque [TYPE_n]
+ * placeholders, as before. "surrogate" mints a plausible fake value instead, for the
+ * types generateSurrogate supports, and falls back to a bracket token for the rest.
+ * Either way the mapping is the same shape (placeholder <-> real value) and resolve()
+ * rehydrates both forms identically — the security property (raw values stay local,
+ * only the placeholder/surrogate ever leaves the device) holds in both modes.
  */
 export class Vault {
-  constructor(state) {
-    this.map = new Map(state?.map ?? []); // key -> token
-    this.values = new Map(state?.values ?? []); // token -> value
+  constructor(state, opts = {}) {
+    this.map = new Map(state?.map ?? []); // key -> token/surrogate
+    this.values = new Map(state?.values ?? []); // token/surrogate -> real value
+    this.labels = new Map(state?.labels ?? []); // token/surrogate -> "TYPE_n" (for pixel-box marks, regardless of mode)
     this.counters = { ...(state?.counters ?? {}) };
+    // Provenance for the token release policy (B1): the page origin a value was
+    // first seen on, or null for values the user typed into the task prompt.
+    // First-seen wins — never overwritten once set.
+    this.origins = new Map(state?.origins ?? []); // token -> origin | null
+    this.mode = opts.mode ?? state?.mode ?? "token";
   }
-  tokenFor(type, value) {
+  /** A surrogate that doesn't collide with the real value or an already-minted one. */
+  _mintSurrogate(type, value, fine) {
+    const base = `${type}:${normKey(type, value)}`;
+    const realLower = String(value).trim().toLowerCase();
+    for (let bump = 0; bump < 25; bump++) {
+      const candidate = generateSurrogate(type, value, hashSeed(`${base}:${bump}`));
+      if (!candidate) return null;
+      const taken = this.values.has(candidate) && this.values.get(candidate) !== value;
+      if (candidate.trim().toLowerCase() !== realLower && !taken) return candidate;
+    }
+    return `[${fine}]`; // pathological collision streak — fall back to a plain token
+  }
+  tokenFor(type, value, meta = {}) {
     const key = normKey(type, value);
     let tok = this.map.get(key);
     if (!tok) {
       this.counters[type] = (this.counters[type] || 0) + 1;
-      tok = `[${type}_${this.counters[type]}]`;
+      const fine = `${type}_${this.counters[type]}`;
+      tok = (this.mode === "surrogate" && this._mintSurrogate(type, value, fine)) || `[${fine}]`;
       this.map.set(key, tok);
       this.values.set(tok, value);
+      this.labels.set(tok, fine);
     }
+    if (!this.origins.has(tok) && meta.origin !== undefined) this.origins.set(tok, meta.origin);
     return tok;
   }
-  /** Replace every known token in `s` with its real value (client-side, at execution). */
+  /** "AADHAAR" style fine type from a "[AADHAAR_1]" token, or null. */
+  typeOf(token) {
+    const m = /^\[([A-Z_]+)_\d+\]$/.exec(token || "");
+    return m ? m[1] : null;
+  }
+  /** Page origin the token's value was first seen on, or null (user-supplied / unknown). */
+  originOf(token) {
+    return this.origins.get(token) ?? null;
+  }
+  /** "TYPE_n" for a minted token/surrogate — used to label pixel-redaction boxes. */
+  labelFor(tok) {
+    return this.labels.get(tok) ?? (tok.startsWith("[") && tok.endsWith("]") ? tok.slice(1, -1) : tok);
+  }
+  /** Replace every known token/surrogate in `s` with its real value (client-side, at execution). */
   resolve(s) {
-    if (typeof s !== "string" || !s.includes("[")) return s;
-    return s.replace(/\[([A-Z_]+_\d+)\]/g, (m) => (this.values.has(m) ? this.values.get(m) : m));
+    if (typeof s !== "string" || !s || this.values.size === 0) return s;
+    let out = s;
+    for (const [tok, value] of this.values) {
+      if (out.includes(tok)) out = out.split(tok).join(value);
+    }
+    return out;
   }
   has(token) {
     return this.values.has(token);
@@ -363,28 +601,35 @@ export class Vault {
   }
   /** [{type, value}] for vault-guided detection (local use only). */
   known() {
-    return [...this.values.entries()].map(([t, value]) => ({ type: t.slice(1, t.lastIndexOf("_")), value }));
+    return [...this.values.entries()].map(([t, value]) => ({ type: this.labelFor(t).slice(0, this.labelFor(t).lastIndexOf("_")), value }));
   }
-  /** Token -> type, no values. Safe to send: tells the server what exists, not what it is. */
+  /** Token/surrogate -> type, no real values. Safe to send: tells the server what exists, not what it is. */
   catalog() {
-    return [...this.values.keys()].map((t) => ({ token: t, type: t.slice(1, t.lastIndexOf("_")) }));
+    return [...this.values.keys()].map((t) => ({ token: t, type: this.labelFor(t).slice(0, this.labelFor(t).lastIndexOf("_")) }));
   }
   toJSON() {
-    return { map: [...this.map], values: [...this.values], counters: this.counters };
+    return {
+      map: [...this.map],
+      values: [...this.values],
+      labels: [...this.labels],
+      counters: this.counters,
+      origins: [...this.origins],
+      mode: this.mode,
+    };
   }
 }
 
 // --- application --------------------------------------------------------------------
 
-function tokenFor(span, vault) {
-  if (vault) return vault.tokenFor(span.type, span.value);
+function tokenFor(span, vault, origin) {
+  if (vault) return vault.tokenFor(span.type, span.value, { origin });
   return TOKENS[COARSE[span.type] ?? "ID"];
 }
 
 /** Replace spans (non-overlapping, any order) with tokens. */
-export function applySpans(text, spans, vault) {
+export function applySpans(text, spans, vault, origin) {
   // assign tokens in reading order (so numbering reads naturally), splice right-to-left
-  const toks = [...spans].sort((a, b) => a.start - b.start).map((s) => [s, tokenFor(s, vault)]);
+  const toks = [...spans].sort((a, b) => a.start - b.start).map((s) => [s, tokenFor(s, vault, origin)]);
   let out = text;
   for (let i = toks.length - 1; i >= 0; i--) {
     const [s, tok] = toks[i];
@@ -443,8 +688,120 @@ export function knownValueSpans(text, known = []) {
   return out;
 }
 
-export async function detectSpans(text, { nerTag, known } = {}) {
-  const rule = [...detectRuleSpans(text), ...knownValueSpans(text, known)].map((s) => ({ ...s, source: s.source === "vault" ? "rule" : s.source, via: s.source }));
+// --- B3: user-defined sensitive terms ---------------------------------------------
+//
+// An organisation's own secrets (a project codename, an employee id format) can't be
+// in any generic PII model — the user defines them in the popup, literal words/
+// phrases or a regex pattern, and they're redacted exactly like built-in PII: same
+// vault, same tokens, same pixel boxes (the label becomes the token type, e.g. a
+// term labelled "Codename" mints [CODENAME_1]).
+export function customTermSpans(text, customTerms = []) {
+  const out = [];
+  if (!text || !customTerms?.length) return out;
+  for (const t of customTerms) {
+    if (!t || (!t.term && t.term !== 0)) continue;
+    const type = String(t.label || "CUSTOM").toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "CUSTOM";
+    if (t.isRegex) {
+      let re;
+      try {
+        re = new RegExp(t.term, "gi");
+      } catch {
+        continue; // an invalid user-supplied pattern is skipped, not a pipeline crash
+      }
+      let m;
+      let guard = 0;
+      while ((m = re.exec(text)) && guard++ < 1000) {
+        if (m[0].length === 0) {
+          re.lastIndex++;
+          continue;
+        }
+        out.push({ start: m.index, end: m.index + m[0].length, type, value: m[0], source: "custom" });
+      }
+    } else {
+      const needle = String(t.term).toLowerCase();
+      if (!needle) continue;
+      const lower = text.toLowerCase();
+      let i = lower.indexOf(needle);
+      while (i >= 0) {
+        out.push({ start: i, end: i + needle.length, type, value: text.slice(i, i + needle.length), source: "custom" });
+        i = lower.indexOf(needle, i + needle.length);
+      }
+    }
+  }
+  return out;
+}
+
+// --- E2: encoded PII (base64 / hex) ------------------------------------------------
+//
+// A page can put real PII in plain sight as a reversible encoding of it — base64,
+// hex — which no regex/checksum rule above matches (it's not shaped like an email or
+// a phone number, it's shaped like base64). Anyone — a person, or an LLM asked to
+// "decode this field" — trivially reverses it back to the raw value, so it is treated
+// as PII too: candidate tokens are decoded, the DECODED text is re-scanned with the
+// same rule engine, and if THAT finds high-confidence PII, the ORIGINAL encoded
+// substring (not the decoded value) is what gets replaced with a token — the page
+// never contained the decoded plaintext as a DOM string, so redacting the on-page
+// spelling is what actually removes it from the outgoing payload.
+// no trailing \b: base64 padding ("=") is a non-word char, so a boundary check
+// right after it never matches (both sides land non-word) and the whole rule
+// would silently never fire on any padded value — the leading \b plus a length
+// floor is enough to avoid matching mid-token.
+const BASE64_RE = /\b[A-Za-z0-9+/]{16,}={0,2}/g;
+const HEX_RE = /\b(?:[0-9a-fA-F]{2}){8,}\b/g;
+const PRINTABLE = /^[\x20-\x7e]+$/;
+
+function tryDecodeBase64(s) {
+  if (s.length < 16 || s.length % 4 !== 0) return null;
+  try {
+    const bin = typeof atob === "function" ? atob(s) : Buffer.from(s, "base64").toString("binary");
+    return PRINTABLE.test(bin) ? bin : null;
+  } catch {
+    return null;
+  }
+}
+function tryDecodeHex(s) {
+  if (s.length < 16 || s.length % 2 !== 0) return null;
+  let out = "";
+  for (let i = 0; i < s.length; i += 2) {
+    const byte = parseInt(s.slice(i, i + 2), 16);
+    if (Number.isNaN(byte)) return null;
+    out += String.fromCharCode(byte);
+  }
+  return PRINTABLE.test(out) ? out : null;
+}
+
+/** Spans where the ORIGINAL text is an encoded (base64/hex) blob whose DECODED content is high-confidence PII. */
+export function detectEncodedSpans(text) {
+  const out = [];
+  if (!text || text.length < 16) return out;
+  for (const [re, decode] of [
+    [BASE64_RE, tryDecodeBase64],
+    [HEX_RE, tryDecodeHex],
+  ]) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(text))) {
+      const decoded = decode(m[0]);
+      if (!decoded) continue;
+      const inner = detectRuleSpans(decoded);
+      // require the decoded PII to span most of the decoded string — otherwise a
+      // long hex/base64-shaped ID that merely CONTAINS a coincidental short digit
+      // run would over-trigger.
+      const covered = inner.reduce((a, s) => a + (s.end - s.start), 0);
+      if (inner.length && covered / decoded.length > 0.4) {
+        out.push({ start: m.index, end: m.index + m[0].length, type: inner[0].type, value: decoded, source: "encoded" });
+      }
+    }
+  }
+  return out;
+}
+
+export async function detectSpans(text, { nerTag, known, customTerms } = {}) {
+  const rule = [...detectRuleSpans(text), ...knownValueSpans(text, known), ...customTermSpans(text, customTerms), ...detectEncodedSpans(text)].map((s) => ({
+    ...s,
+    source: s.source === "vault" || s.source === "custom" ? "rule" : s.source,
+    via: s.source,
+  }));
   if (!nerTag || text.length < 3 || !/\p{L}{2,}/u.test(text)) return resolveOverlaps(rule);
   let ner = [];
   try {
@@ -470,9 +827,43 @@ export async function redactText(input, opts = {}) {
   if (!input || typeof input !== "string") return { text: input ?? "", hits: [] };
   const spans = await detectSpans(input, { ...opts, known: opts.known ?? opts.vault?.known() });
   return {
-    text: applySpans(input, spans, opts.vault),
+    text: applySpans(input, spans, opts.vault, opts.origin),
     hits: spans.map((s) => ({ type: opts.vault ? s.type : COARSE[s.type], fine: s.type, value: s.value, start: s.start, end: s.end, source: s.source })),
   };
+}
+
+// --- E2: multi-field correlation ---------------------------------------------------
+//
+// A page can split one PII value across two DOM elements (a phone's area code in
+// one <td>, the rest in the next) — each extracted NODE is redacted independently
+// above, so neither fragment alone matches any rule/checksum and both pass
+// through untouched. But the two nodes are adjacent in the extracted array (the
+// extractor emits nodes in reading order), and an agent — or a person — reading
+// them back to back trivially reconstitutes the full value. This is a best-effort
+// second pass: re-scan each SHORT node's "text" concatenated with its immediate
+// neighbour's, and if that join only THERE reveals a high-confidence pattern,
+// blank the crossing portion in both. It catches simple physical adjacency (table
+// cells, sibling divs/spans); it is not a general multi-hop reconstruction proof.
+const ADJACENT_SPLIT_MAX_LEN = 24;
+function redactAdjacentSplits(nodes, opts = {}) {
+  for (let i = 0; i < nodes.length - 1; i++) {
+    const a = nodes[i];
+    const b = nodes[i + 1];
+    if (typeof a.text !== "string" || typeof b.text !== "string" || !a.text || !b.text) continue;
+    if (a.text.length > ADJACENT_SPLIT_MAX_LEN || b.text.length > ADJACENT_SPLIT_MAX_LEN) continue;
+    const boundary = a.text.length;
+    const spans = detectRuleSpans(a.text + b.text);
+    for (const s of spans) {
+      if (s.start >= boundary || s.end <= boundary) continue; // must straddle the join
+      const tok = tokenFor(s, opts.vault, opts.origin);
+      const aStart = Math.max(0, s.start);
+      const aEnd = Math.min(boundary, s.end);
+      const bStart = Math.max(0, s.start - boundary);
+      const bEnd = Math.min(b.text.length, s.end - boundary);
+      a.text = a.text.slice(0, aStart) + tok + a.text.slice(aEnd);
+      b.text = b.text.slice(0, bStart) + tok + b.text.slice(bEnd);
+    }
+  }
 }
 
 /**
@@ -493,6 +884,7 @@ export async function redactNodes(nodes, opts = {}) {
     }
     out.push(copy);
   }
+  redactAdjacentSplits(out, opts);
   return { nodes: out, log };
 }
 
@@ -511,5 +903,6 @@ export function scrubLog(log) {
 export function hasResidualPII(text) {
   if (!text) return false;
   const HIGH = new Set(["EMAIL", "CC", "AADHAAR", "PAN", "GSTIN", "SSN", "SECRET", "UPI"]);
-  return detectRuleSpans(text).some((s) => HIGH.has(s.type) && !/^[Xx*]{4}/.test(s.value));
+  const hit = (s) => HIGH.has(s.type) && !/^[Xx*]{4}/.test(s.value);
+  return detectRuleSpans(text).some(hit) || detectEncodedSpans(text).some(hit);
 }

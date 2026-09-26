@@ -26,6 +26,36 @@ function inViewport(rect) {
   );
 }
 
+// B2: a page can hide text from a human (so it never shows on screen) while
+// leaving it perfectly readable in the DOM — the classic way to smuggle an
+// instruction aimed at an AI agent past a person glancing at the page.
+// inViewport() above already drops zero-size and fully off-screen elements
+// (covers display:none and position:absolute;left:-9999px); this covers the
+// techniques that still leave a normal-looking, in-viewport rect: hidden via
+// visibility, faded via opacity, shrunk to an unreadable font size, or painted
+// the same colour as its own background.
+function parseRgb(c) {
+  const m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\)/.exec(c || "");
+  return m ? { r: +m[1], g: +m[2], b: +m[3], a: m[4] === undefined ? 1 : +m[4] } : null;
+}
+function isVisibleToUser(el) {
+  let cs;
+  try {
+    cs = getComputedStyle(el);
+  } catch {
+    return true; // can't tell — fail open, rely on the injection-language flag instead
+  }
+  if (cs.display === "none" || cs.visibility === "hidden" || cs.visibility === "collapse") return false;
+  const opacity = parseFloat(cs.opacity);
+  if (!Number.isNaN(opacity) && opacity <= 0.05) return false;
+  const fontSize = parseFloat(cs.fontSize);
+  if (!Number.isNaN(fontSize) && fontSize < 2) return false;
+  const fg = parseRgb(cs.color);
+  const bg = parseRgb(cs.backgroundColor);
+  if (fg && bg && bg.a > 0.5 && fg.r === bg.r && fg.g === bg.g && fg.b === bg.b) return false;
+  return true;
+}
+
 // input[type=X] -> accessibility role. Anything not listed here (text, search,
 // email, url, tel, number, password, date/time pickers, …) falls through to
 // "textbox", which is correct for those — but NOT for file/checkbox/radio, which
@@ -311,9 +341,16 @@ export function extractSnapshot(siteConfig) {
     const tag = el.tagName.toLowerCase();
     const hasFieldConfig = cfg.fields && Object.keys(cfg.fields).length > 0;
 
+    // B2: text invisible to a human never reaches the payload — a hidden div full
+    // of instructions aimed at an agent doesn't get read as if it were the page's
+    // real content. Form fields keep their text (a password/CVV field's own value
+    // is never serialised anyway — see extractFormFieldText — and a hidden input's
+    // label isn't an injection vector), only free text is gated.
     let text = "";
     if (tag === "input" || tag === "textarea" || tag === "select") {
       text = extractFormFieldText(el);
+    } else if (!isVisibleToUser(el)) {
+      text = "";
     } else if (hasFieldConfig) {
       text = firstText(el, cfg.fields.text) || visibleText(el);
     } else {
@@ -422,8 +459,14 @@ function addTextBlocks(nodes, extractedEls) {
     return false;
   };
   const blocks = new Map();
+  // B2: same visibility gate as the main extraction loop — text hidden from a
+  // human (opacity/visibility/tiny font/same-colour) is dropped here too, not
+  // just for elements the site config or global selectors already matched.
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-    acceptNode: (n) => (n.data && /\S/.test(n.data) && n.parentElement && !/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|OPTION)$/.test(n.parentElement.tagName) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+    acceptNode: (n) =>
+      n.data && /\S/.test(n.data) && n.parentElement && !/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|OPTION)$/.test(n.parentElement.tagName) && isVisibleToUser(n.parentElement)
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_REJECT,
   });
   for (let t = walker.nextNode(); t; t = walker.nextNode()) {
     const p = t.parentElement;
@@ -445,7 +488,7 @@ function addTextBlocks(nodes, extractedEls) {
     for (let t = w.nextNode(); t; t = w.nextNode()) {
       let owner = t.parentElement;
       while (owner && owner !== b && !isBlock(owner)) owner = owner.parentElement;
-      if (owner === b && !/^(SCRIPT|STYLE|NOSCRIPT|OPTION)$/.test(t.parentElement.tagName)) {
+      if (owner === b && !/^(SCRIPT|STYLE|NOSCRIPT|OPTION)$/.test(t.parentElement.tagName) && isVisibleToUser(t.parentElement)) {
         if (t.previousSibling?.nodeName === "BR" || t.parentElement.previousElementSibling?.nodeName === "BR") text += " · ";
         text += t.data;
       }
@@ -516,15 +559,30 @@ export function detectLoginWall() {
   return false;
 }
 
+// reCAPTCHA (and similar widgets) inject their OWN internal helper iframes on any
+// page that merely loads the script anywhere — most commonly the accessibility
+// "aframe" and the checkbox "anchor" frame, both permanently 0x0/hidden by design,
+// present even for invisible v3 scoring nobody ever sees. Only the interactive
+// challenge frame ("bframe" — the picture-grid puzzle) or a widget that's actually
+// VISIBLE on screen indicates a real wall blocking the page, so those hidden
+// helper iframes are excluded here; a plain `iframe[src*="recaptcha"]` selector
+// matched them and produced false positives on ordinary pages (see eval/results).
+const CAPTCHA_HIDDEN_IFRAME_RE = /recaptcha\/api2\/(aframe|anchor)/i;
+function hasVisibleCaptchaWidget() {
+  const candidates = document.querySelectorAll(
+    'iframe[src*="recaptcha"], .g-recaptcha, #recaptcha, iframe[src*="hcaptcha"], .h-captcha, #px-captcha, [class*="datadome"], iframe[src*="arkoselabs"], iframe[src*="funcaptcha"], #arkose, div[data-e2e="arkose-frame"], iframe[src*="challenges.cloudflare.com"], .cf-turnstile',
+  );
+  for (const el of candidates) {
+    if (el.tagName === "IFRAME" && CAPTCHA_HIDDEN_IFRAME_RE.test(el.src || "")) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 4 && r.height > 4) return true;
+  }
+  return false;
+}
+
 /** Heuristic: is the page a CAPTCHA / automated-bot challenge rather than real content? */
 export function detectCaptcha() {
-  if (
-    document.querySelector(
-      'iframe[src*="recaptcha"], .g-recaptcha, #recaptcha, iframe[src*="hcaptcha"], .h-captcha, #px-captcha, [class*="datadome"], iframe[src*="arkoselabs"], iframe[src*="funcaptcha"], #arkose, div[data-e2e="arkose-frame"], iframe[src*="challenges.cloudflare.com"], .cf-turnstile',
-    )
-  ) {
-    return true;
-  }
+  if (hasVisibleCaptchaWidget()) return true;
   if (document.querySelector("#challenge-running, #cf-challenge-running")) return true;
   const title = document.title || "";
   if (/just a moment|attention required/i.test(title)) return true;

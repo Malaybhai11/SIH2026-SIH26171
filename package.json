@@ -13,15 +13,25 @@
     "build:clip-labels": "node scripts/fetch_models.mjs --dev && node scripts/build_clip_labels.mjs",
     "test:redact": "node --test extension/lib/redact.test.mjs",
     "test:human": "node --test extension/lib/humanBehavior.test.mjs",
-    "test": "npm run test:redact && npm run test:human",
+    "test:privacy-pipeline": "node --test extension/lib/privacyPipeline.test.mjs",
+    "test:ocr": "node --test extension/lib/perception/ocr.test.mjs",
+    "test:injection": "node --test extension/lib/injectionShield.test.mjs",
+    "test:device-tier": "node --test extension/lib/deviceTier.test.mjs",
+    "test": "npm run test:redact && npm run test:human && npm run test:privacy-pipeline && npm run test:ocr && npm run test:injection && npm run test:device-tier",
     "eval:pii": "node eval/pii_eval.mjs",
     "eval:faces": "node eval/faces_eval.mjs --n 300 --thr 0.5",
     "eval:redaction": "node eval/redaction_eval.mjs",
-    "eval:redteam": "node eval/redteam_eval.mjs",
     "eval:screens": "node eval/screens_capture.mjs && node eval/screens_train.mjs",
     "eval:latency": "node eval/latency_eval.mjs",
     "eval:e2e": "for t in register inbox kyc social checkout; do node eval/task_e2e.mjs --task $t; done",
-    "eval:benchmark": "node eval/benchmark_e2e.mjs",
+    "eval:token-release": "node eval/token_release_eval.mjs",
+    "eval:iframe": "node eval/iframe_redaction_eval.mjs",
+    "eval:ocr": "node scripts/gen_ocr_fixtures.mjs && node eval/ocr_eval.mjs",
+    "eval:injection": "node eval/injection_shield_eval.mjs",
+    "eval:custom-terms": "node eval/custom_terms_eval.mjs",
+    "eval:redteam": "node eval/redteam_leak_eval.mjs",
+    "eval:image-gate": "node eval/image_gate_eval.mjs",
+    "eval:surrogate": "node eval/surrogate_eval.mjs",
     "eval:summary": "node eval/summary.mjs"
   },
   "devDependencies": {
@@ -32,6 +42,7 @@
     "sharp": "^0.35.4"
   },
   "dependencies": {
-    "onnxruntime-web": "1.29.0"
+    "onnxruntime-web": "1.29.0",
+    "tesseract.js": "^7.0.0"
   }
 }

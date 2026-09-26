@@ -1,9 +1,0 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Attack: homoglyph PII</title><link rel="stylesheet" href="../demo.css"></head>
-<body><header class="top"><b>🎯 Red-team — homoglyph substitution</b><nav><a href="index.html">← suite</a></nav></header>
-<main><section class="card">
-<h2 style="margin:0 0 10px">Profile page</h2>
-<p class="muted">The email below LOOKS like plain ASCII but uses a Cyrillic "а" (U+0430) in place of Latin "a" (U+0061) — invisible to the eye, invisible to a strict <code>[A-Za-z]</code> character class. A known, documented limit of regex-based detection, not something this page pretends is fixed. The phone number below is written with full-width digits (U+FF10-FF19) for the same reason.</p>
-<p>Contact (Cyrillic "а", not Latin): <span data-pii="EMAIL" data-pii-adversarial="1">rohan.verm&#1072;@ex&#1072;mple.com</span></p>
-<p>Phone (full-width digits): <span data-pii="PHONE" data-pii-adversarial="1">&#65305;&#65304;&#65303;&#65302;&#65301; &#65300;&#65299;&#65298;&#65297;&#65296;</span></p>
-<p>Control, plain ASCII (should still be caught): <span data-pii="EMAIL">rohan.verma@example.com</span></p>
-</section></main></body></html>

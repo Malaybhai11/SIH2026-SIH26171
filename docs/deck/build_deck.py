@@ -164,6 +164,10 @@ def set_title(slide, t):
 S = list(prs.slides)
 pct = lambda v: f"{v * 100:.1f}%"
 scr = screens["accuracy"]
+import re as _re
+_scr_sites_m = _re.search(r"from (\d+) real sites", screens["protocol"])
+scr_sites = _scr_sites_m.group(1) if _scr_sites_m else "?"
+scr_delta_pts = round((scr["clipPlusDomPriors"] - scr["zeroShotClip"]) * 100, 1)
 ind = pii["indian_synthetic"]["rulesPlusNer"]
 ai4 = pii["ai4privacy_en"]["rulesPlusNer"]
 agg = red["aggregate"]
@@ -217,7 +221,7 @@ footer(s)
 L = 0.45
 header(s, L, 1.3, 7.3, "Proposed solution")
 bullets(s, L, 1.62, 7.4, 1.45, [
-    [("Browser extension (Chrome, Edge, Brave, Firefox) + FastAPI server. ", {"bold": True}), ("Three small models run in the browser (WebGPU → WASM) and read the screen: YuNet faces, MobileCLIP-S0 vision transformer, BERT-small PII NER (52 MB total).", {})],
+    [("Browser extension (Chrome, Edge, Brave, Firefox) + FastAPI server. ", {"bold": True}), (f"Three small models run in the browser (WebGPU → WASM) and read the screen: YuNet faces, MobileCLIP-S0 vision transformer, BERT-small PII NER ({bal['modelMB']:.0f} MB total).", {})],
     [("Before any request, ", {}), ("personal data is replaced by consistent tokens", {"bold": True}), (" ([NAME_1], [AADHAAR_1], [OTP_1]) and black-boxed at pixel level in the screenshot, with the same labels.", {})],
     [("An open-weights VLM on the server (Qwen2.5-VL / Llama-4 / Gemma-3) plans actions over tokens + numbered UI marks; the client swaps real values back in ", {}), ("on the device", {"bold": True}), (".", {})],
 ])
@@ -281,7 +285,7 @@ header(s, 0.45, 3.35, 5.8, "Technologies")
 tech = [
     ("Client", "Manifest V3 extension, JavaScript, esbuild; Chrome/Edge/Brave + Firefox from one source"),
     ("On-device ML", "ONNX Runtime Web — WebGPU, multi-threaded WASM SIMD (cross-origin isolated); offscreen document hosts all models once"),
-    ("Models", "YuNet FP32 0.2 MB · MobileCLIP-S0 image tower FP16 23 MB (prompt embeddings precomputed) · BERT-small PII INT8 29 MB"),
+    ("Models", f"YuNet FP32 {bal['modelsLoaded']['face']['MB']:.1f} MB · MobileCLIP-S0 image tower FP16 {bal['modelsLoaded']['clip']['MB']:.1f} MB (prompt embeddings precomputed) · BERT-small PII INT8 {bal['modelsLoaded']['ner']['MB']:.1f} MB"),
     ("Server", "Python FastAPI; OpenAI-compatible open-weights VLM (vLLM / Ollama): Qwen2.5-VL-7B, Llama-4-Scout, Gemma-3"),
     ("Evaluation", "Puppeteer + real Chrome, onnxruntime-node; WIDER FACE, ai4privacy, 217-screen web set"),
 ]
@@ -308,7 +312,7 @@ team_oval(s)
 footer(s)
 text(s, 0.45, 1.25, 12.4, 0.35, [[("Working prototype, measured against all five evaluation criteria (reproducible scripts in eval/):", {"size": 12, "bold": True, "color": NAVY})]])
 stats = [
-    (pct(scr["clipPlusDomPriors"]), "screen understanding on\nunseen websites (96 sites)", NAVY),
+    (pct(scr["clipPlusDomPriors"]), f"screen understanding on\nunseen websites ({scr_sites} sites)", NAVY),
     (f"{ind['f1']:.2f}", f"PII F1, Indian set\n(R {ind['recall']:.2f} · P {ind['precision']:.2f})", NAVY),
     (f"{agg['pixelPrecision']:.2f}", f"pixel redaction precision\n{round(agg['objectRecall'] * agg['gtObjects'])}/{agg['gtObjects']} sensitive objects covered", NAVY),
     (f"{eco['engineMemoryMB']:.0f}–{bal['engineMemoryMB']:.0f} MB", "total on-device engine\nmemory (eco–balanced)", NAVY),
@@ -324,10 +328,10 @@ for i, (big, small, col) in enumerate(stats):
 
 header(s, 0.45, 3.35, 12, "Challenges, risks and how we handle them")
 rows = [
-    ("Low-end client devices", "Models too heavy / slow", "52 MB total; measured precision choice (FP32 YuNet 2.6× faster than INT8 in WASM); eco mode 37 MB; caches make an unchanged frame ~0.15 s; WebGPU when present"),
+    ("Low-end client devices", "Models too heavy / slow", f"{bal['modelMB']:.0f} MB total; measured precision choice (FP32 YuNet 2.6× faster than INT8 in WASM, see docs/model-contract.md); eco mode {eco['engineMemoryMB']:.0f} MB; caches make an unchanged frame ~{eco['unchangedFrameMs']['median'] / 1000:.2f} s; WebGPU when present"),
     ("Missed PII = privacy leak", "Rules or NER miss a value", "Four layers: checksum rules + NER + Vault-guided matching + sensitive-field boxing; fail-closed egress gate; server re-check; audit log"),
     ("Over-redaction", "Agent loses context", "Typed, consistent tokens keep structure; checksum validation keeps order ids, PNRs, prices, IFSC readable (1/120 false alarms on hard negatives)"),
-    ("Unfamiliar UIs", "ViT not trained on screens", "Fuse pixels with DOM structure (+17.5 pts on unseen sites); element grounding via DOM + Set-of-Marks is exact"),
+    ("Unfamiliar UIs", "ViT not trained on screens", f"Fuse pixels with DOM structure (+{scr_delta_pts} pts on unseen sites); element grounding via DOM + Set-of-Marks is exact"),
     ("Server model availability", "Cloud dependence", "Any OpenAI-compatible open-weights endpoint (vLLM / Ollama offline); stateless server; mock mode for demos"),
 ]
 tbl = s.shapes.add_table(len(rows) + 1, 3, Inches(0.45), Inches(3.7), Inches(12.45), Inches(3.1)).table
